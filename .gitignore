@@ -6,3 +6,5 @@ backdrops
 .env
 venv
 secrets
+.pytest_cache
+

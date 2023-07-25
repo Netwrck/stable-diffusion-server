@@ -1,11 +1,17 @@
+from io import BytesIO
 from pathlib import Path
 
+import nltk
 from fastapi import FastAPI, Form
 from fastapi.middleware.gzip import GZipMiddleware
 
 from diffusers import DiffusionPipeline
 import torch
 from starlette.responses import FileResponse
+from starlette.responses import JSONResponse
+
+from env import BUCKET_PATH, BUCKET_NAME
+from stable_diffusion_server.bucket_api import check_if_blob_exists, upload_to_bucket
 
 pipe = DiffusionPipeline.from_pretrained(
     "models/stable-diffusion-xl-base-0.9",
@@ -33,6 +39,7 @@ app = FastAPI(
     version="1",
 )
 app.add_middleware(GZipMiddleware, minimum_size=1000)
+stopwords = nltk.corpus.stopwords.words("english")
 
 
 @app.get("/make_image")
@@ -47,19 +54,30 @@ def make_image(prompt: str, save_path: str = ""):
 
 
 @app.get("/create_and_upload_image")
-def make_image(prompt: str, save_path: str = ""):
-    if Path(save_path).exists():
-        return FileResponse(save_path, media_type="image/png")
+def create_and_upload_image(prompt: str, save_path: str = ""):
+    path = get_image_or_create_upload_to_cloud_storage(prompt, save_path)
+    return JSONResponse({"path": path})
+
+
+def get_image_or_create_upload_to_cloud_storage(prompt:str, save_path:str):
+    # check exists - todo cache this
+    if check_if_blob_exists(save_path):
+        return f"https://{BUCKET_NAME}/{BUCKET_PATH}/{save_path}"
+    if len(prompt) > 200:
+        # remove stopwords
+        prompt = prompt.split()
+        prompt = ' '.join((word for word in prompt if word not in stopwords))
+        if len(prompt) > 200:
+            prompt = prompt[:200]
     image = pipe(prompt=prompt).images[0]
-    # 77 tokens max so maybe around 200 characters?
-    # todo remove stopwords if its too long
-    if not save_path:
-        save_path = f"images/{prompt}.png"
-    image.save(save_path)
-    return FileResponse(image, media_type="image/png")
+    # save as bytesio
+    bs = BytesIO()
+    image.save(bs, "jpeg")
+    bio = bs.getvalue()
+    link = upload_to_bucket(save_path, bio, is_bytesio=True)
+    return link
 
 
-# def get_image_or_create_upload_to_cloud_storage(prompt:str, save_path:str):
 
 # image = pipe(prompt=prompt).images[0]
 #
