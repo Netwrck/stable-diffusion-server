@@ -13,8 +13,18 @@ source venv/bin/activate
 
 ```bash
 pip install -r requirements.txt
+pip install -r dev-requirements.txt
 ```
 
-3. Run the server
+3. Edit settings in env.py
+4. Run the server
 
 ```bash
+
+```
+
+### Testing
+
+```bash
+pytest .
+```
