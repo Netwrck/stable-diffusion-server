@@ -72,7 +72,7 @@ def get_image_or_create_upload_to_cloud_storage(prompt:str, save_path:str):
     image = pipe(prompt=prompt).images[0]
     # save as bytesio
     bs = BytesIO()
-    image.save(bs, "jpeg")
+    image.save(bs, format="webp")
     bio = bs.getvalue()
     link = upload_to_bucket(save_path, bio, is_bytesio=True)
     return link

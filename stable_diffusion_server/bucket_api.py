@@ -16,7 +16,7 @@ def upload_to_bucket(blob_name, path_to_file_on_local_disk, is_bytesio=False):
     if not is_bytesio:
         blob.upload_from_filename(path_to_file_on_local_disk)
     else:
-        blob.upload_from_string(path_to_file_on_local_disk, content_type='image/png')
+        blob.upload_from_string(path_to_file_on_local_disk, content_type='image/webp')
     #returns a public url
     return blob.public_url
 
