@@ -15,8 +15,8 @@ url = "https://raw.githubusercontent.com/CompVis/stable-diffusion/main/assets/st
 
 response = requests.get(url)
 init_image = Image.open(BytesIO(response.content)).convert("RGB")
-init_image = init_image.resize((768, 512))
-# init_image = init_image.resize((1024, 1024))
+# init_image = init_image.resize((768, 512))
+init_image = init_image.resize((1024, 1024))
 
 prompt = "A fantasy landscape, trending on artstation, beautiful amazing unreal surreal gorgeous"
 
