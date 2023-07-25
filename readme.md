@@ -29,7 +29,7 @@ pip install -r dev-requirements.txt
 . Run the server
 
 ```bash
-
+GOOGLE_APPLICATION_CREDENTIALS=secrets/google-credentials.json gunicorn  -k uvicorn.workers.UvicornWorker -b :8000 main:app --timeout 600 -w 1 
 ```
 
 . Make a Request
@@ -53,6 +53,6 @@ Check to see that "good Looking elf fantasy character" was created
 ### Testing
 
 ```bash
-pytest .
+GOOGLE_APPLICATION_CREDENTIALS=secrets/google-credentials.json pytest .
 ```
 
