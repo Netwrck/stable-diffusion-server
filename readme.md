@@ -17,7 +17,7 @@ python3 -m venv venv
 source venv/bin/activate
 ```
 
-. Install dependencies
+#### Install dependencies
 
 ```bash
 pip install -r requirements.txt
@@ -27,15 +27,16 @@ cd models
 git clone https://huggingface.co/stabilityai/stable-diffusion-xl-base-0.9    
 ```
 
-. Edit settings in env.py
-. download your Google cloud credentials to secrets/google-credentials.json
-. Run the server
+#### Edit settings in env.py
+#### download your Google cloud credentials to secrets/google-credentials.json
+Images generated will be stored in your bucket
+#### Run the server
 
 ```bash
 GOOGLE_APPLICATION_CREDENTIALS=secrets/google-credentials.json gunicorn  -k uvicorn.workers.UvicornWorker -b :8000 main:app --timeout 600 -w 1 
 ```
 
-. Make a Request
+#### Make a Request
 
 ```bash
 http://localhost:8000/create_and_upload_image?prompt=good%20looking%20elf%20fantasy%20character&save_path=created/elf.png
