@@ -3,7 +3,7 @@ simple stable diffusion server that saves images to cloud storage - returns link
 ## Creators
 [![netwrck logo](https://static.netwrck.com/static/img/netwrck-logo-colord256.png)](https://netwrck.com)
 
-Checkout [AI Characters to chat with](https://netwrck.com) at [netwrck.com](https://netwrck.com)
+Checkout [Voiced AI Characters to chat with](https://netwrck.com) at [netwrck.com](https://netwrck.com)
 
 Characters are narrated and written by many GPT models trained on 1000s of fantasy novels and chats.
 
