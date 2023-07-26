@@ -59,7 +59,7 @@ def make_image(prompt: str, save_path: str = ""):
     if not save_path:
         save_path = f"images/{prompt}.png"
     image.save(save_path)
-    return FileResponse(image, media_type="image/png")
+    return FileResponse(save_path, media_type="image/png")
 
 
 @app.get("/create_and_upload_image")
