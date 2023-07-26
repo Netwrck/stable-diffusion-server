@@ -7,6 +7,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 
 from diffusers import DiffusionPipeline
 import torch
+from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import FileResponse
 from starlette.responses import JSONResponse
 
@@ -39,6 +40,14 @@ app = FastAPI(
     version="1",
 )
 app.add_middleware(GZipMiddleware, minimum_size=1000)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 stopwords = nltk.corpus.stopwords.words("english")
 
 
@@ -69,7 +78,11 @@ def get_image_or_create_upload_to_cloud_storage(prompt:str, save_path:str):
         prompt = ' '.join((word for word in prompt if word not in stopwords))
         if len(prompt) > 200:
             prompt = prompt[:200]
-    image = pipe(prompt=prompt).images[0]
+    # image = pipe(prompt=prompt).images[0]
+    image = pipe(prompt=prompt,
+                 # height=512,
+                 # width=512,
+                 num_inference_steps=50).images[0] # normally uses 50 steps
     # save as bytesio
     bs = BytesIO()
     image.save(bs, format="webp")

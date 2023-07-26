@@ -15,7 +15,9 @@ from diffusers import StableDiffusionXLImg2ImgPipeline
 from diffusers.utils import load_image
 
 pipe = StableDiffusionXLImg2ImgPipeline.from_pretrained(
-"models/stable-diffusion-xl-refiner-0.9", torch_dtype = torch.float16
+"models/stable-diffusion-xl-refiner-0.9",
+# "models/stable-diffusion-xl-base-0.9",
+    torch_dtype = torch.float16
 )
 pipe = pipe.to("cuda")
 
