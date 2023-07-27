@@ -1,7 +1,10 @@
 import gc
+import multiprocessing
 import os
 import traceback
 from io import BytesIO
+from itertools import permutations
+from multiprocessing.pool import Pool
 from pathlib import Path
 from urllib.parse import quote_plus
 
@@ -19,11 +22,11 @@ from env import BUCKET_PATH, BUCKET_NAME
 from stable_diffusion_server.bucket_api import check_if_blob_exists, upload_to_bucket
 
 pipe = DiffusionPipeline.from_pretrained(
-    "models/stable-diffusion-xl-base-1.0",
+    "models/stable-diffusion-xl-base-0.9",
     torch_dtype=torch.float16,
     use_safetensors=True,
     variant="fp16",
-    safety_checker=None,
+    # safety_checker=None,
 )  # todo try torch_dtype=bfloat16
 pipe.to("cuda")
 
@@ -32,6 +35,7 @@ pipe.to("cuda")
 
 
 # pipe.unet = torch.compile(pipe.unet, mode="reduce-overhead", fullgraph=True)
+pipe.unet = torch.compile(pipe.unet)
 
 
 app = FastAPI(
@@ -81,6 +85,19 @@ def get_image_or_create_upload_to_cloud_storage(prompt:str, save_path:str):
     # check exists - todo cache this
     if check_if_blob_exists(save_path):
         return f"https://{BUCKET_NAME}/{BUCKET_PATH}/{save_path}"
+    bio = create_image_from_prompt(prompt)
+    if bio is None:
+        return None # error thrown in pool
+    link = upload_to_bucket(save_path, bio, is_bytesio=True)
+    return link
+
+# multiprocessing.set_start_method('spawn', True)
+# processes_pool = Pool(1) # cant do too much at once or OOM errors happen
+# def create_image_from_prompt_sync(prompt):
+#     """have to call this sync to avoid OOM errors"""
+#     return processes_pool.apply_async(create_image_from_prompt, args=(prompt,), ).wait()
+
+def create_image_from_prompt(prompt):
     if len(prompt) > 200:
         # remove stopwords
         prompt = prompt.split()
@@ -92,35 +109,68 @@ def get_image_or_create_upload_to_cloud_storage(prompt:str, save_path:str):
         image = pipe(prompt=prompt,
                      # height=512,
                      # width=512,
-                     num_inference_steps=50).images[0] # normally uses 50 steps
+                     num_inference_steps=50).images[0]  # normally uses 50 steps
     except Exception as e:
-        traceback.print_exc()
-        logger.info("restarting server to fix cuda issues (device side asserts)")
-        # todo fix device side asserts instead of restart to fix
-        # todo only restart the correct gunicorn
-        # this could be really annoying if your running other gunicorns on your machine which also get restarted
-        os.system("/usr/bin/bash kill -SIGHUP `pgrep gunicorn`")
-        os.system("kill -1 `pgrep gunicorn`")
-    try:
-        gc.collect()
-        torch.cuda.empty_cache()
-    except Exception as e:
-        traceback.print_exc()
-        logger.info("restarting server to fix cuda issues (device side asserts)")
-        # todo fix device side asserts instead of restart to fix
-        # todo only restart the correct gunicorn
-        # this could be really annoying if your running other gunicorns on your machine which also get restarted
-        os.system("/usr/bin/bash kill -SIGHUP `pgrep gunicorn`")
-        os.system("kill -1 `pgrep gunicorn`")
+        # try rm stopwords + half the prompt
+        # todo try prompt permutations
+        logger.info(f"trying to shorten prompt of length {len(prompt)}")
 
+        prompt = ' '.join((word for word in prompt if word not in stopwords))
+        prompts = prompt.split()
+
+        prompt = ' '.join(prompts[:len(prompts) // 2])
+        logger.info(f"shortened prompt to: {len(prompt)}")
+
+        if prompt:
+            try:
+                image = pipe(prompt=prompt,
+                             # height=512,
+                             # width=512,
+                             num_inference_steps=50).images[0]  # normally uses 50 steps
+            except Exception as e:
+                # logger.info("trying to permute prompt")
+                # # try two swaps of the prompt/permutations
+                # prompt = prompt.split()
+                # prompt = ' '.join(permutations(prompt, 2).__next__())
+                logger.info(f"trying to shorten prompt of length {len(prompt)}")
+
+                prompt = ' '.join((word for word in prompt if word not in stopwords))
+                prompts = prompt.split()
+
+                prompt = ' '.join(prompts[:len(prompts) // 2])
+                logger.info(f"shortened prompt to: {len(prompt)}")
+
+                try:
+                    image = pipe(prompt=prompt,
+                                 # height=512,
+                                 # width=512,
+                                 num_inference_steps=50).images[0]  # normally uses 50 steps
+                except Exception as e:
+                    # just error out
+                    traceback.print_exc()
+                    raise e
+                    # logger.info("restarting server to fix cuda issues (device side asserts)")
+                    # todo fix device side asserts instead of restart to fix
+                    # todo only restart the correct gunicorn
+                    # this could be really annoying if your running other gunicorns on your machine which also get restarted
+                    # os.system("/usr/bin/bash kill -SIGHUP `pgrep gunicorn`")
+                    # os.system("kill -1 `pgrep gunicorn`")
+    # try:
+    #     # gc.collect()
+    #     torch.cuda.empty_cache()
+    # except Exception as e:
+    #     traceback.print_exc()
+    #     logger.info("restarting server to fix cuda issues (device side asserts)")
+    #     # todo fix device side asserts instead of restart to fix
+    #     # todo only restart the correct gunicorn
+    #     # this could be really annoying if your running other gunicorns on your machine which also get restarted
+    #     os.system("/usr/bin/bash kill -SIGHUP `pgrep gunicorn`")
+    #     os.system("kill -1 `pgrep gunicorn`")
     # save as bytesio
     bs = BytesIO()
     image.save(bs, format="webp")
     bio = bs.getvalue()
-    link = upload_to_bucket(save_path, bio, is_bytesio=True)
-    return link
-
-
+    return bio
 
 # image = pipe(prompt=prompt).images[0]
 #

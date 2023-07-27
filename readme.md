@@ -36,6 +36,13 @@ Images generated will be stored in your bucket
 GOOGLE_APPLICATION_CREDENTIALS=secrets/google-credentials.json gunicorn  -k uvicorn.workers.UvicornWorker -b :8000 main:app --timeout 600 -w 1 
 ```
 
+with max 4 requests at a time
+This will drop a lot of requests under load instead of taking on too much work and causing OOM Errors.
+
+```bash
+GOOGLE_APPLICATION_CREDENTIALS=secrets/google-credentials.json PYTHONPATH=. uvicorn --port 8000 --timeout-keep-alive 600 --workers 1 --backlog 1 --limit-concurrency 4 main:app
+```
+
 #### Make a Request
 
 ```bash
