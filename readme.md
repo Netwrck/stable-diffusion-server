@@ -24,7 +24,7 @@ pip install -r requirements.txt
 pip install -r dev-requirements.txt
 
 cd models
-git clone https://huggingface.co/stabilityai/stable-diffusion-xl-base-0.9    
+git clone https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0    
 ```
 
 #### Edit settings in env.py

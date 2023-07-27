@@ -1,12 +1,16 @@
+import gc
+import os
+import traceback
 from io import BytesIO
 from pathlib import Path
+from urllib.parse import quote_plus
 
 import nltk
-from fastapi import FastAPI, Form
-from fastapi.middleware.gzip import GZipMiddleware
-
-from diffusers import DiffusionPipeline
 import torch
+from diffusers import DiffusionPipeline
+from fastapi import FastAPI
+from fastapi.middleware.gzip import GZipMiddleware
+from loguru import logger
 from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import FileResponse
 from starlette.responses import JSONResponse
@@ -15,7 +19,7 @@ from env import BUCKET_PATH, BUCKET_NAME
 from stable_diffusion_server.bucket_api import check_if_blob_exists, upload_to_bucket
 
 pipe = DiffusionPipeline.from_pretrained(
-    "models/stable-diffusion-xl-base-0.9",
+    "models/stable-diffusion-xl-base-1.0",
     torch_dtype=torch.float16,
     use_safetensors=True,
     variant="fp16",
@@ -64,6 +68,11 @@ def make_image(prompt: str, save_path: str = ""):
 
 @app.get("/create_and_upload_image")
 def create_and_upload_image(prompt: str, save_path: str = ""):
+    path_components = save_path.split("/")[0:-1]
+    final_name = save_path.split("/")[-1]
+    if not path_components:
+        path_components = []
+    save_path = '/'.join(path_components) + quote_plus(final_name)
     path = get_image_or_create_upload_to_cloud_storage(prompt, save_path)
     return JSONResponse({"path": path})
 
@@ -79,10 +88,31 @@ def get_image_or_create_upload_to_cloud_storage(prompt:str, save_path:str):
         if len(prompt) > 200:
             prompt = prompt[:200]
     # image = pipe(prompt=prompt).images[0]
-    image = pipe(prompt=prompt,
-                 # height=512,
-                 # width=512,
-                 num_inference_steps=50).images[0] # normally uses 50 steps
+    try:
+        image = pipe(prompt=prompt,
+                     # height=512,
+                     # width=512,
+                     num_inference_steps=50).images[0] # normally uses 50 steps
+    except Exception as e:
+        traceback.print_exc()
+        logger.info("restarting server to fix cuda issues (device side asserts)")
+        # todo fix device side asserts instead of restart to fix
+        # todo only restart the correct gunicorn
+        # this could be really annoying if your running other gunicorns on your machine which also get restarted
+        os.system("/usr/bin/bash kill -SIGHUP `pgrep gunicorn`")
+        os.system("kill -1 `pgrep gunicorn`")
+    try:
+        gc.collect()
+        torch.cuda.empty_cache()
+    except Exception as e:
+        traceback.print_exc()
+        logger.info("restarting server to fix cuda issues (device side asserts)")
+        # todo fix device side asserts instead of restart to fix
+        # todo only restart the correct gunicorn
+        # this could be really annoying if your running other gunicorns on your machine which also get restarted
+        os.system("/usr/bin/bash kill -SIGHUP `pgrep gunicorn`")
+        os.system("kill -1 `pgrep gunicorn`")
+
     # save as bytesio
     bs = BytesIO()
     image.save(bs, format="webp")
