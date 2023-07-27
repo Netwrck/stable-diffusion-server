@@ -31,7 +31,7 @@ pipe.to("cuda")
 # pipe.enable_xformers_memory_efficient_attention()
 
 
-pipe.unet = torch.compile(pipe.unet, mode="reduce-overhead", fullgraph=True)
+# pipe.unet = torch.compile(pipe.unet, mode="reduce-overhead", fullgraph=True)
 
 
 app = FastAPI(
