@@ -22,8 +22,8 @@ from env import BUCKET_PATH, BUCKET_NAME
 from stable_diffusion_server.bucket_api import check_if_blob_exists, upload_to_bucket
 
 pipe = DiffusionPipeline.from_pretrained(
-    "models/stable-diffusion-xl-base-0.9",
-    torch_dtype=torch.float16,
+    "models/stable-diffusion-xl-base-1.0",
+    torch_dtype=torch.bfloat16,
     use_safetensors=True,
     variant="fp16",
     # safety_checker=None,
