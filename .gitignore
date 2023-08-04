@@ -7,4 +7,4 @@ backdrops
 venv
 secrets
 .pytest_cache
-
+progress.txt

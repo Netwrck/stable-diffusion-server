@@ -18,6 +18,7 @@ while True:
                 os.system("kill -9 `pgrep gunicorn`")
                 os.system("kill -9 `pgrep uvicorn`")
                 os.system("killall -9 uvicorn")
+                os.system("ps | grep uvicorn | awk '{print $1}' | xargs kill -9")
 
             if progress == "done":
                 break

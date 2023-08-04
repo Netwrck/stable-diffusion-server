@@ -102,3 +102,9 @@ This command will kill the server if it is hanging and restart it (must be runni
 ```
 python3 manager.py
 ```
+
+# hack restarting without supervisor
+run the server in a infinite loop
+```
+while true; do GOOGLE_APPLICATION_CREDENTIALS=secrets/google-credentials.json PYTHONPATH=. uvicorn --port 8000 --timeout-keep-alive 600 --workers 1 --backlog 1 --limit-concurrency 4 main:app; done
+```
