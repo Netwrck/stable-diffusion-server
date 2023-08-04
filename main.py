@@ -8,6 +8,7 @@ from multiprocessing.pool import Pool
 from pathlib import Path
 from urllib.parse import quote_plus
 
+import numpy as np
 import nltk
 import torch
 from diffusers import DiffusionPipeline
@@ -168,6 +169,20 @@ def create_image_from_prompt(prompt):
     #     os.system("kill -1 `pgrep gunicorn`")
     # save as bytesio
     bs = BytesIO()
+
+    bright_count = np.sum(np.array(image) > 0)
+    if bright_count == 0:
+        # we have a black image, this is an error likely we need a restart
+        logger.info("restarting server to fix cuda issues (device side asserts)")
+        #     # todo fix device side asserts instead of restart to fix
+        #     # todo only restart the correct gunicorn
+        #     # this could be really annoying if your running other gunicorns on your machine which also get restarted
+        os.system("/usr/bin/bash kill -SIGHUP `pgrep gunicorn`")
+        os.system("kill -1 `pgrep gunicorn`")
+        os.system("/usr/bin/bash kill -SIGHUP `pgrep uvicorn`")
+        os.system("kill -1 `pgrep uvicorn`")
+
+        return None
     image.save(bs, format="webp")
     bio = bs.getvalue()
     return bio
