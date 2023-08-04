@@ -25,6 +25,9 @@ pip install -r dev-requirements.txt
 
 cd models
 git clone https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0    
+
+# install stopwords
+python -c "import nltk; nltk.download('stopwords')"
 ```
 
 #### Edit settings in env.py
