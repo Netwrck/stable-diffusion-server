@@ -2,6 +2,7 @@ import gc
 import multiprocessing
 import os
 import traceback
+from datetime import datetime
 from io import BytesIO
 from itertools import permutations
 from multiprocessing.pool import Pool
@@ -36,6 +37,7 @@ pipe.to("cuda")
 
 
 # pipe.unet = torch.compile(pipe.unet, mode="reduce-overhead", fullgraph=True)
+# this can cause errors on some inputs so consider disabling it
 pipe.unet = torch.compile(pipe.unet)
 
 
@@ -185,6 +187,10 @@ def create_image_from_prompt(prompt):
         return None
     image.save(bs, format="webp")
     bio = bs.getvalue()
+    # touch progress.txt file - if we dont do this we get restarted by supervisor/other processes for reliability
+    with open("progress.txt", "w") as f:
+        current_time = datetime.now().strftime("%H:%M:%S")
+        f.write(f"{current_time}")
     return bio
 
 # image = pipe(prompt=prompt).images[0]

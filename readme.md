@@ -70,3 +70,35 @@ Check to see that "good Looking elf fantasy character" was created
 GOOGLE_APPLICATION_CREDENTIALS=secrets/google-credentials.json pytest .
 ```
 
+
+#### Running under supervisord
+
+edit ops/supervisor.conf
+
+install the supervisor
+apt-get install -y supervisor
+```bash
+sudo cat >/etc/supervisor/conf.d/python-app.conf << EOF
+[program:sdif_http_server]
+directory=/home/lee/code/sdif
+command=/home/lee/code/sdif/.env/bin/uvicorn --port 8000 --timeout-keep-alive 600 --workers 1 --backlog 1 --limit-concurrency 4 main:app
+autostart=true
+autorestart=true
+environment=VIRTUAL_ENV="/home/lee/code/sdif/.env/",PATH="/opt/app/sdif/.env/bin",HOME="/home/lee",GOOGLE_APPLICATION_CREDENTIALS="secrets/google-credentials.json",PYTHONPATH="/home/lee/code/sdif"
+stdout_logfile=syslog
+stderr_logfile=syslog
+user=lee
+EOF
+
+supervisorctl reread
+supervisorctl update
+
+
+#### run a manager process to kill/restart if the server if it is hanging
+
+Sometimes the serverr just stops working and needs a hard restart
+
+This command will kill the server if it is hanging and restart it (must be running under supervisorctl)
+```
+python3 manager.py
+```
