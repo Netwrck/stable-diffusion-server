@@ -92,11 +92,11 @@ EOF
 
 supervisorctl reread
 supervisorctl update
-
+```
 
 #### run a manager process to kill/restart if the server if it is hanging
 
-Sometimes the serverr just stops working and needs a hard restart
+Sometimes the server just stops working and needs a hard restart
 
 This command will kill the server if it is hanging and restart it (must be running under supervisorctl)
 ```
