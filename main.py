@@ -185,7 +185,7 @@ def create_image_from_prompt(prompt):
         os.system("kill -1 `pgrep uvicorn`")
 
         return None
-    image.save(bs, format="webp")
+    image.save(bs, quality=85, optimize=True, format="webp")
     bio = bs.getvalue()
     # touch progress.txt file - if we dont do this we get restarted by supervisor/other processes for reliability
     with open("progress.txt", "w") as f:
