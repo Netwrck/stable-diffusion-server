@@ -85,6 +85,8 @@ def create_and_upload_image(prompt: str, save_path: str = ""):
 
 
 def get_image_or_create_upload_to_cloud_storage(prompt:str, save_path:str):
+    prompt = shorten_too_long_text(prompt)
+    save_path = shorten_too_long_text(save_path)
     # check exists - todo cache this
     if check_if_blob_exists(save_path):
         return f"https://{BUCKET_NAME}/{BUCKET_PATH}/{save_path}"
@@ -101,12 +103,7 @@ def get_image_or_create_upload_to_cloud_storage(prompt:str, save_path:str):
 #     return processes_pool.apply_async(create_image_from_prompt, args=(prompt,), ).wait()
 
 def create_image_from_prompt(prompt):
-    if len(prompt) > 200:
-        # remove stopwords
-        prompt = prompt.split()
-        prompt = ' '.join((word for word in prompt if word not in stopwords))
-        if len(prompt) > 200:
-            prompt = prompt[:200]
+    prompt = shorten_too_long_text(prompt)
     # image = pipe(prompt=prompt).images[0]
     try:
         image = pipe(prompt=prompt,
@@ -192,6 +189,16 @@ def create_image_from_prompt(prompt):
         current_time = datetime.now().strftime("%H:%M:%S")
         f.write(f"{current_time}")
     return bio
+
+
+def shorten_too_long_text(prompt):
+    if len(prompt) > 200:
+        # remove stopwords
+        prompt = prompt.split() # todo also split hyphens
+        prompt = ' '.join((word for word in prompt if word not in stopwords))
+        if len(prompt) > 200:
+            prompt = prompt[:200]
+    return prompt
 
 # image = pipe(prompt=prompt).images[0]
 #
