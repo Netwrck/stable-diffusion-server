@@ -8,3 +8,6 @@ venv
 secrets
 .pytest_cache
 progress.txt
+.idea
+__pycache__
+

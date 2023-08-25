@@ -48,9 +48,8 @@ GOOGLE_APPLICATION_CREDENTIALS=secrets/google-credentials.json PYTHONPATH=. uvic
 
 #### Make a Request
 
-```bash
-http://localhost:8000/create_and_upload_image?prompt=good%20looking%20elf%20fantasy%20character&save_path=created/elf.png
-```
+http://localhost:8000/create_and_upload_image?prompt=good%20looking%20elf%20fantasy%20character&save_path=created/elf.webp
+
 Response
 ```shell
 {"path":"https://storage.googleapis.com/static.netwrck.com/static/uploads/created/elf.png"}

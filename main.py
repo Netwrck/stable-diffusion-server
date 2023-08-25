@@ -32,6 +32,21 @@ pipe = DiffusionPipeline.from_pretrained(
 )  # todo try torch_dtype=bfloat16
 pipe.to("cuda")
 
+
+refiner = DiffusionPipeline.from_pretrained(
+    "stabilityai/stable-diffusion-xl-refiner-1.0",
+    text_encoder_2=pipe.text_encoder_2,
+    vae=pipe.vae,
+    torch_dtype=torch.bfloat16, # safer to use bfloat?
+    use_safetensors=True,
+    variant="fp16", #remember not to download the big model
+)
+
+refiner.to("cuda")
+
+n_steps = 40
+high_noise_frac = 0.8
+
 # if using torch < 2.0
 # pipe.enable_xformers_memory_efficient_attention()
 
@@ -39,6 +54,7 @@ pipe.to("cuda")
 # pipe.unet = torch.compile(pipe.unet, mode="reduce-overhead", fullgraph=True)
 # this can cause errors on some inputs so consider disabling it
 pipe.unet = torch.compile(pipe.unet)
+refiner.unet = torch.compile(refiner.unet)#, mode="reduce-overhead", fullgraph=True)
 
 
 app = FastAPI(
@@ -110,6 +126,8 @@ def create_image_from_prompt(prompt):
     # image = pipe(prompt=prompt).images[0]
     try:
         image = pipe(prompt=prompt,
+                     denoising_end=high_noise_frac,
+                     output_type='latent',
                      # height=512,
                      # width=512,
                      num_inference_steps=50).images[0]  # normally uses 50 steps
@@ -123,10 +141,12 @@ def create_image_from_prompt(prompt):
 
         prompt = ' '.join(prompts[:len(prompts) // 2])
         logger.info(f"shortened prompt to: {len(prompt)}")
-
+        image = None
         if prompt:
             try:
                 image = pipe(prompt=prompt,
+                             denoising_end=high_noise_frac,
+                             output_type='latent',
                              # height=512,
                              # width=512,
                              num_inference_steps=50).images[0]  # normally uses 50 steps
@@ -145,6 +165,8 @@ def create_image_from_prompt(prompt):
 
                 try:
                     image = pipe(prompt=prompt,
+                                 denoising_end=high_noise_frac,
+                                 output_type='latent',
                                  # height=512,
                                  # width=512,
                                  num_inference_steps=50).images[0]  # normally uses 50 steps
@@ -158,6 +180,13 @@ def create_image_from_prompt(prompt):
                     # this could be really annoying if your running other gunicorns on your machine which also get restarted
                     # os.system("/usr/bin/bash kill -SIGHUP `pgrep gunicorn`")
                     # os.system("kill -1 `pgrep gunicorn`")
+    if image != None:
+        image = refiner(
+            prompt=prompt,
+            num_inference_steps=n_steps,
+            denoising_start=high_noise_frac,
+            image=image,
+        ).images[0]
     # try:
     #     # gc.collect()
     #     torch.cuda.empty_cache()
