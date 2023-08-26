@@ -30,6 +30,8 @@ pipe = DiffusionPipeline.from_pretrained(
     variant="fp16",
     # safety_checker=None,
 )  # todo try torch_dtype=bfloat16
+pipe.watermark = None
+
 pipe.to("cuda")
 
 
@@ -41,7 +43,7 @@ refiner = DiffusionPipeline.from_pretrained(
     use_safetensors=True,
     variant="fp16", #remember not to download the big model
 )
-
+refiner.watermark = None
 refiner.to("cuda")
 
 n_steps = 40
