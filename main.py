@@ -12,6 +12,7 @@ from urllib.parse import quote_plus
 import numpy as np
 import nltk
 import torch
+from PIL.Image import Image
 from diffusers import DiffusionPipeline, StableDiffusionXLInpaintPipeline
 from diffusers.utils import load_image
 from fastapi import FastAPI
@@ -46,10 +47,34 @@ refiner = DiffusionPipeline.from_pretrained(
 refiner.watermark = None
 refiner.to("cuda")
 
-
+# {'scheduler', 'text_encoder', 'text_encoder_2', 'tokenizer', 'tokenizer_2', 'unet', 'vae'} can be passed in from existing model
 inpaintpipe = StableDiffusionXLInpaintPipeline.from_pretrained(
-    "models/stable-diffusion-xl-base-1.0", torch_dtype=torch.bfloat16, variant="fp16", use_safetensors=True
+    "models/stable-diffusion-xl-base-1.0", torch_dtype=torch.bfloat16, variant="fp16", use_safetensors=True,
+    scheduler=pipe.scheduler,
+    text_encoder=pipe.text_encoder,
+    text_encoder_2=pipe.text_encoder_2,
+    tokenizer=pipe.tokenizer,
+    tokenizer_2=pipe.tokenizer_2,
+    unet=pipe.unet,
+    vae=pipe.vae,
+    # load_connected_pipeline=
 )
+# # switch out to save gpu mem
+# del inpaintpipe.vae
+# del inpaintpipe.text_encoder_2
+# del inpaintpipe.text_encoder
+# del inpaintpipe.scheduler
+# del inpaintpipe.tokenizer
+# del inpaintpipe.tokenizer_2
+# del inpaintpipe.unet
+# inpaintpipe.vae = pipe.vae
+# inpaintpipe.text_encoder_2 = pipe.text_encoder_2
+# inpaintpipe.text_encoder = pipe.text_encoder
+# inpaintpipe.scheduler = pipe.scheduler
+# inpaintpipe.tokenizer = pipe.tokenizer
+# inpaintpipe.tokenizer_2 = pipe.tokenizer_2
+# inpaintpipe.unet = pipe.unet
+# todo this should work
 # inpaintpipe = StableDiffusionXLInpaintPipeline( # construct an inpainter using the existing model
 #     vae=pipe.vae,
 #     text_encoder_2=pipe.text_encoder_2,
@@ -71,7 +96,29 @@ inpaint_refiner = StableDiffusionXLInpaintPipeline.from_pretrained(
     torch_dtype=torch.bfloat16,
     use_safetensors=True,
     variant="fp16",
+
+    tokenizer_2=refiner.tokenizer_2,
+    tokenizer=refiner.tokenizer,
+    scheduler=refiner.scheduler,
+    text_encoder=refiner.text_encoder,
+    unet=refiner.unet,
 )
+# del inpaint_refiner.vae
+# del inpaint_refiner.text_encoder_2
+# del inpaint_refiner.text_encoder
+# del inpaint_refiner.scheduler
+# del inpaint_refiner.tokenizer
+# del inpaint_refiner.tokenizer_2
+# del inpaint_refiner.unet
+# inpaint_refiner.vae = inpaintpipe.vae
+# inpaint_refiner.text_encoder_2 = inpaintpipe.text_encoder_2
+#
+# inpaint_refiner.text_encoder = refiner.text_encoder
+# inpaint_refiner.scheduler = refiner.scheduler
+# inpaint_refiner.tokenizer = refiner.tokenizer
+# inpaint_refiner.tokenizer_2 = refiner.tokenizer_2
+# inpaint_refiner.unet = refiner.unet
+
 # inpaint_refiner = StableDiffusionXLInpaintPipeline(
 #     text_encoder_2=inpaintpipe.text_encoder_2,
 #     vae=inpaintpipe.vae,
@@ -137,13 +184,13 @@ def make_image(prompt: str, save_path: str = ""):
 
 
 @app.get("/create_and_upload_image")
-def create_and_upload_image(prompt: str, save_path: str = ""):
+def create_and_upload_image(prompt: str, width: int=1024, height:int=1024, save_path: str = ""):
     path_components = save_path.split("/")[0:-1]
     final_name = save_path.split("/")[-1]
     if not path_components:
         path_components = []
     save_path = '/'.join(path_components) + quote_plus(final_name)
-    path = get_image_or_create_upload_to_cloud_storage(prompt, save_path)
+    path = get_image_or_create_upload_to_cloud_storage(prompt, width, height, save_path)
     return JSONResponse({"path": path})
 
 @app.get("/inpaint_and_upload_image")
@@ -157,13 +204,13 @@ def inpaint_and_upload_image(prompt: str, image_url:str, mask_url:str, save_path
     return JSONResponse({"path": path})
 
 
-def get_image_or_create_upload_to_cloud_storage(prompt:str, save_path:str):
+def get_image_or_create_upload_to_cloud_storage(prompt:str,width:int, height:int, save_path:str):
     prompt = shorten_too_long_text(prompt)
     save_path = shorten_too_long_text(save_path)
     # check exists - todo cache this
     if check_if_blob_exists(save_path):
         return f"https://{BUCKET_NAME}/{BUCKET_PATH}/{save_path}"
-    bio = create_image_from_prompt(prompt)
+    bio = create_image_from_prompt(prompt, width, height)
     if bio is None:
         return None # error thrown in pool
     link = upload_to_bucket(save_path, bio, is_bytesio=True)
@@ -186,11 +233,16 @@ def get_image_or_inpaint_upload_to_cloud_storage(prompt:str, image_url:str, mask
 #     """have to call this sync to avoid OOM errors"""
 #     return processes_pool.apply_async(create_image_from_prompt, args=(prompt,), ).wait()
 
-def create_image_from_prompt(prompt):
+def create_image_from_prompt(prompt, width, height):
+    # round width and height down to multiple of 64
+    block_width = width - (width % 64)
+    block_height = height - (height % 64)
     prompt = shorten_too_long_text(prompt)
     # image = pipe(prompt=prompt).images[0]
     try:
         image = pipe(prompt=prompt,
+                     width=block_width,
+                     height=block_height,
                      denoising_end=high_noise_frac,
                      output_type='latent',
                      # height=512,
@@ -210,6 +262,8 @@ def create_image_from_prompt(prompt):
         if prompt:
             try:
                 image = pipe(prompt=prompt,
+                             width=block_width,
+                             height=block_height,
                              denoising_end=high_noise_frac,
                              output_type='latent',
                              # height=512,
@@ -230,6 +284,8 @@ def create_image_from_prompt(prompt):
 
                 try:
                     image = pipe(prompt=prompt,
+                                 width=block_width,
+                                 height=block_height,
                                  denoising_end=high_noise_frac,
                                  output_type='latent',
                                  # height=512,
@@ -248,10 +304,14 @@ def create_image_from_prompt(prompt):
     if image != None:
         image = refiner(
             prompt=prompt,
+            width=block_width,
+            height=block_height,
             num_inference_steps=n_steps,
             denoising_start=high_noise_frac,
             image=image,
         ).images[0]
+    # resize to original size width/height
+    image = image.resize((width, height), Image.ANTIALIAS)
     # try:
     #     # gc.collect()
     #     torch.cuda.empty_cache()
