@@ -38,7 +38,7 @@ pipe.to("cuda")
 
 # pipe.unet = torch.compile(pipe.unet, mode="reduce-overhead", fullgraph=True)
 # this can cause errors on some inputs so consider disabling it
-pipe.unet = torch.compile(pipe.unet)
+#pipe.unet = torch.compile(pipe.unet)
 
 
 app = FastAPI(
