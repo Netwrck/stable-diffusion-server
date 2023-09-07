@@ -26,7 +26,7 @@ pipe = StableDiffusionXLImg2ImgPipeline.from_pretrained(
     use_safetensors=True,
     variant="fp16",
 )
-pipe = pipe.to("cuda")
+pipe = pipe.to("cuda") #  # "LayerNormKernelImpl" not implemented for 'Half' error if its on cpu it cant do fp16
 # idea composite: and re prompt img-img to support different sizes
 
 # url = "https://raw.githubusercontent.com/CompVis/stable-diffusion/main/assets/stable-samples/img2img/sketch-mountains-input.jpg"

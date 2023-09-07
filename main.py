@@ -1,4 +1,5 @@
 import gc
+import math
 import multiprocessing
 import os
 import traceback
@@ -243,8 +244,8 @@ def create_image_from_prompt(prompt, width, height):
         image = pipe(prompt=prompt,
                      width=block_width,
                      height=block_height,
-                     denoising_end=high_noise_frac,
-                     output_type='latent',
+                     # denoising_end=high_noise_frac,
+                     # output_type='latent',
                      # height=512,
                      # width=512,
                      num_inference_steps=50).images[0]  # normally uses 50 steps
@@ -264,8 +265,8 @@ def create_image_from_prompt(prompt, width, height):
                 image = pipe(prompt=prompt,
                              width=block_width,
                              height=block_height,
-                             denoising_end=high_noise_frac,
-                             output_type='latent',
+                             # denoising_end=high_noise_frac,
+                             # output_type='latent',
                              # height=512,
                              # width=512,
                              num_inference_steps=50).images[0]  # normally uses 50 steps
@@ -286,8 +287,8 @@ def create_image_from_prompt(prompt, width, height):
                     image = pipe(prompt=prompt,
                                  width=block_width,
                                  height=block_height,
-                                 denoising_end=high_noise_frac,
-                                 output_type='latent',
+                                 # denoising_end=high_noise_frac,
+                                 # output_type='latent', # dont need latent yet - we refine the image at full res
                                  # height=512,
                                  # width=512,
                                  num_inference_steps=50).images[0]  # normally uses 50 steps
@@ -301,17 +302,23 @@ def create_image_from_prompt(prompt, width, height):
                     # this could be really annoying if your running other gunicorns on your machine which also get restarted
                     # os.system("/usr/bin/bash kill -SIGHUP `pgrep gunicorn`")
                     # os.system("kill -1 `pgrep gunicorn`")
-    if image != None:
-        image = refiner(
-            prompt=prompt,
-            width=block_width,
-            height=block_height,
-            num_inference_steps=n_steps,
-            denoising_start=high_noise_frac,
-            image=image,
-        ).images[0]
-    # resize to original size width/height
-    image = image.resize((width, height), Image.ANTIALIAS)
+    # todo refine
+    # if image != None:
+    #     image = refiner(
+    #         prompt=prompt,
+    #         # width=block_width,
+    #         # height=block_height,
+    #         num_inference_steps=n_steps,
+    #         # denoising_start=high_noise_frac,
+    #         image=image,
+    #     ).images[0]
+    if width != block_width or height != block_height:
+        # resize to original size width/height
+        # find aspect ratio to scale up to that covers the original img input width/height
+        scale_up_ratio = max(width / block_width, height / block_height)
+        image = image.resize((math.ceil(block_width * scale_up_ratio), math.ceil(height * scale_up_ratio)))
+        # crop image to original size
+        image = image.crop((0, 0, width, height))
     # try:
     #     # gc.collect()
     #     torch.cuda.empty_cache()
