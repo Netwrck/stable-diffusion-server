@@ -30,7 +30,24 @@ pipe = DiffusionPipeline.from_pretrained(
     variant="fp16",
     # safety_checker=None,
 )  # todo try torch_dtype=bfloat16
+pipe.watermark = None
+
 pipe.to("cuda")
+
+
+refiner = DiffusionPipeline.from_pretrained(
+    "stabilityai/stable-diffusion-xl-refiner-1.0",
+    text_encoder_2=pipe.text_encoder_2,
+    vae=pipe.vae,
+    torch_dtype=torch.bfloat16, # safer to use bfloat?
+    use_safetensors=True,
+    variant="fp16", #remember not to download the big model
+)
+refiner.watermark = None
+refiner.to("cuda")
+
+n_steps = 40
+high_noise_frac = 0.8
 
 # if using torch < 2.0
 # pipe.enable_xformers_memory_efficient_attention()
@@ -39,6 +56,7 @@ pipe.to("cuda")
 # pipe.unet = torch.compile(pipe.unet, mode="reduce-overhead", fullgraph=True)
 # this can cause errors on some inputs so consider disabling it
 #pipe.unet = torch.compile(pipe.unet)
+#refiner.unet = torch.compile(refiner.unet)#, mode="reduce-overhead", fullgraph=True)
 
 
 app = FastAPI(
@@ -85,6 +103,8 @@ def create_and_upload_image(prompt: str, save_path: str = ""):
 
 
 def get_image_or_create_upload_to_cloud_storage(prompt:str, save_path:str):
+    prompt = shorten_too_long_text(prompt)
+    save_path = shorten_too_long_text(save_path)
     # check exists - todo cache this
     if check_if_blob_exists(save_path):
         return f"https://{BUCKET_NAME}/{BUCKET_PATH}/{save_path}"
@@ -101,15 +121,12 @@ def get_image_or_create_upload_to_cloud_storage(prompt:str, save_path:str):
 #     return processes_pool.apply_async(create_image_from_prompt, args=(prompt,), ).wait()
 
 def create_image_from_prompt(prompt):
-    if len(prompt) > 200:
-        # remove stopwords
-        prompt = prompt.split()
-        prompt = ' '.join((word for word in prompt if word not in stopwords))
-        if len(prompt) > 200:
-            prompt = prompt[:200]
+    prompt = shorten_too_long_text(prompt)
     # image = pipe(prompt=prompt).images[0]
     try:
         image = pipe(prompt=prompt,
+                     denoising_end=high_noise_frac,
+                     output_type='latent',
                      # height=512,
                      # width=512,
                      num_inference_steps=50).images[0]  # normally uses 50 steps
@@ -123,10 +140,12 @@ def create_image_from_prompt(prompt):
 
         prompt = ' '.join(prompts[:len(prompts) // 2])
         logger.info(f"shortened prompt to: {len(prompt)}")
-
+        image = None
         if prompt:
             try:
                 image = pipe(prompt=prompt,
+                             denoising_end=high_noise_frac,
+                             output_type='latent',
                              # height=512,
                              # width=512,
                              num_inference_steps=50).images[0]  # normally uses 50 steps
@@ -145,6 +164,8 @@ def create_image_from_prompt(prompt):
 
                 try:
                     image = pipe(prompt=prompt,
+                                 denoising_end=high_noise_frac,
+                                 output_type='latent',
                                  # height=512,
                                  # width=512,
                                  num_inference_steps=50).images[0]  # normally uses 50 steps
@@ -158,6 +179,13 @@ def create_image_from_prompt(prompt):
                     # this could be really annoying if your running other gunicorns on your machine which also get restarted
                     # os.system("/usr/bin/bash kill -SIGHUP `pgrep gunicorn`")
                     # os.system("kill -1 `pgrep gunicorn`")
+    if image != None:
+        image = refiner(
+            prompt=prompt,
+            num_inference_steps=n_steps,
+            denoising_start=high_noise_frac,
+            image=image,
+        ).images[0]
     # try:
     #     # gc.collect()
     #     torch.cuda.empty_cache()
@@ -192,6 +220,16 @@ def create_image_from_prompt(prompt):
         current_time = datetime.now().strftime("%H:%M:%S")
         f.write(f"{current_time}")
     return bio
+
+
+def shorten_too_long_text(prompt):
+    if len(prompt) > 200:
+        # remove stopwords
+        prompt = prompt.split() # todo also split hyphens
+        prompt = ' '.join((word for word in prompt if word not in stopwords))
+        if len(prompt) > 200:
+            prompt = prompt[:200]
+    return prompt
 
 # image = pipe(prompt=prompt).images[0]
 #

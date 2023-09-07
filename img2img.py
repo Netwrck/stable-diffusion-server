@@ -14,11 +14,12 @@ pipe = pipe.to(device)
 url = "https://raw.githubusercontent.com/CompVis/stable-diffusion/main/assets/stable-samples/img2img/sketch-mountains-input.jpg"
 
 response = requests.get(url)
-init_image = Image.open(BytesIO(response.content)).convert("RGB")
+# init_image = Image.open(BytesIO(response.content)).convert("RGB")
+init_image = Image.open("/mnt/c/Users/leepenkman/Pictures/aiknight-neon-punk-fantasy-art-good-looking-trending-fantastic-1.webp").convert("RGB")
 # init_image = init_image.resize((768, 512))
-init_image = init_image.resize((1024, 1024))
+init_image = init_image.resize((1920, 1080))
 
-prompt = "A fantasy landscape, trending on artstation, beautiful amazing unreal surreal gorgeous"
+prompt = "knight neon punk fantasy art good looking trending fantastic"
 
 images = pipe(prompt=prompt, image=init_image, strength=0.75, guidance_scale=7.5).images
 images[0].save("fantasy_landscape.png")

@@ -15,9 +15,11 @@ from diffusers import StableDiffusionXLImg2ImgPipeline
 from diffusers.utils import load_image
 
 pipe = StableDiffusionXLImg2ImgPipeline.from_pretrained(
-"models/stable-diffusion-xl-refiner-0.9",
+"stabilityai/stable-diffusion-xl-refiner-1.0",
 # "models/stable-diffusion-xl-base-0.9",
-    torch_dtype = torch.float16
+    torch_dtype = torch.float16,
+    use_safetensors=True,
+    variant="fp16",
 )
 pipe = pipe.to("cuda")
 
@@ -26,7 +28,7 @@ url = "https://raw.githubusercontent.com/CompVis/stable-diffusion/main/assets/st
 response = requests.get(url)
 init_image = Image.open(BytesIO(response.content)).convert("RGB")
 # init_image = init_image.resize((768, 512))
-init_image = init_image.resize((1024, 1024))
+init_image = init_image.resize((1080, 1920))
 
 prompt = "A fantasy landscape, trending on artstation, beautiful amazing unreal surreal gorgeous impressionism"
 
