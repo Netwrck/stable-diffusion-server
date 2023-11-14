@@ -144,8 +144,8 @@ high_noise_frac = 0.8
 
 # pipe.unet = torch.compile(pipe.unet, mode="reduce-overhead", fullgraph=True)
 # this can cause errors on some inputs so consider disabling it
-pipe.unet = torch.compile(pipe.unet)
-refiner.unet = torch.compile(refiner.unet)#, mode="reduce-overhead", fullgraph=True)
+# pipe.unet = torch.compile(pipe.unet)
+# refiner.unet = torch.compile(refiner.unet)#, mode="reduce-overhead", fullgraph=True)
 # compile the inpainters - todo reuse the other unets? swap out the models for others/del them so they share models and can be swapped efficiently
 inpaintpipe.unet = pipe.unet
 inpaint_refiner.unet = refiner.unet
