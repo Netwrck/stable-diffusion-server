@@ -14,7 +14,14 @@ import numpy as np
 import nltk
 import torch
 from PIL.Image import Image
-from diffusers import DiffusionPipeline, StableDiffusionXLInpaintPipeline
+from diffusers import (
+    DiffusionPipeline,
+    StableDiffusionXLInpaintPipeline,
+    UNet2DConditionModel,
+    LCMScheduler,
+    StableDiffusionInpaintPipeline,
+    StableDiffusionImg2ImgPipeline,
+)
 from diffusers.utils import load_image
 from fastapi import FastAPI
 from fastapi.middleware.gzip import GZipMiddleware
@@ -26,13 +33,18 @@ from starlette.responses import JSONResponse
 from env import BUCKET_PATH, BUCKET_NAME
 from stable_diffusion_server.bucket_api import check_if_blob_exists, upload_to_bucket
 
-pipe = DiffusionPipeline.from_pretrained(
-    "models/stable-diffusion-xl-base-1.0",
-    torch_dtype=torch.bfloat16,
-    use_safetensors=True,
-    variant="fp16",
-    # safety_checker=None,
-)  # todo try torch_dtype=bfloat16
+unet = UNet2DConditionModel.from_pretrained("models/lcm-ssd-1b", torch_dtype=torch.float16, variant="fp16")
+pipe = DiffusionPipeline.from_pretrained("models/SSD-1B", unet=unet, torch_dtype=torch.float16, variant="fp16")
+
+pipe.scheduler = LCMScheduler.from_config(pipe.scheduler.config)
+
+# pipe = DiffusionPipeline.from_pretrained(
+#     "models/stable-diffusion-xl-base-1.0",
+#     torch_dtype=torch.bfloat16,
+#     use_safetensors=True,
+#     variant="fp16",
+#     # safety_checker=None,
+# )  # todo try torch_dtype=bfloat16
 pipe.watermark = None
 
 pipe.to("cuda")
@@ -41,7 +53,7 @@ refiner = DiffusionPipeline.from_pretrained(
     "stabilityai/stable-diffusion-xl-refiner-1.0",
     text_encoder_2=pipe.text_encoder_2,
     vae=pipe.vae,
-    torch_dtype=torch.bfloat16, # safer to use bfloat?
+    torch_dtype=torch.float16, # safer to use bfloat?
     use_safetensors=True,
     variant="fp16", #remember not to download the big model
 )
@@ -49,6 +61,8 @@ refiner.watermark = None
 refiner.to("cuda")
 
 # {'scheduler', 'text_encoder', 'text_encoder_2', 'tokenizer', 'tokenizer_2', 'unet', 'vae'} can be passed in from existing model
+# img2img = StableDiffusionImg2ImgPipeline(**pipe.components)
+# inpaintpipe = StableDiffusionInpaintPipeline(**pipe.components)
 inpaintpipe = StableDiffusionXLInpaintPipeline.from_pretrained(
     "models/stable-diffusion-xl-base-1.0", torch_dtype=torch.bfloat16, variant="fp16", use_safetensors=True,
     scheduler=pipe.scheduler,
@@ -90,6 +104,7 @@ inpaintpipe.to("cuda")
 inpaintpipe.watermark = None
 # inpaintpipe.register_to_config(requires_aesthetics_score=False)
 
+# todo do we need this?
 inpaint_refiner = StableDiffusionXLInpaintPipeline.from_pretrained(
     "stabilityai/stable-diffusion-xl-refiner-1.0",
     text_encoder_2=inpaintpipe.text_encoder_2,
@@ -177,7 +192,7 @@ stopwords = nltk.corpus.stopwords.words("english")
 def make_image(prompt: str, save_path: str = ""):
     if Path(save_path).exists():
         return FileResponse(save_path, media_type="image/png")
-    image = pipe(prompt=prompt).images[0]
+    image = pipe(prompt=prompt, num_inference_steps=4).images[0]
     if not save_path:
         save_path = f"images/{prompt}.png"
     image.save(save_path)
@@ -239,16 +254,17 @@ def create_image_from_prompt(prompt, width, height):
     block_width = width - (width % 64)
     block_height = height - (height % 64)
     prompt = shorten_too_long_text(prompt)
+    use_refiner = True
     # image = pipe(prompt=prompt).images[0]
     try:
         image = pipe(prompt=prompt,
                      width=block_width,
                      height=block_height,
                      # denoising_end=high_noise_frac,
-                     # output_type='latent',
+                     output_type='latent' if use_refiner else "pil",
                      # height=512,
                      # width=512,
-                     num_inference_steps=50).images[0]  # normally uses 50 steps
+                     num_inference_steps=4).images[0]  # normally uses 50 steps
     except Exception as e:
         # try rm stopwords + half the prompt
         # todo try prompt permutations
@@ -266,10 +282,10 @@ def create_image_from_prompt(prompt, width, height):
                              width=block_width,
                              height=block_height,
                              # denoising_end=high_noise_frac,
-                             # output_type='latent',
+                             output_type='latent' if use_refiner else "pil",
                              # height=512,
                              # width=512,
-                             num_inference_steps=50).images[0]  # normally uses 50 steps
+                             num_inference_steps=4).images[0]  # normally uses 50 steps
             except Exception as e:
                 # logger.info("trying to permute prompt")
                 # # try two swaps of the prompt/permutations
@@ -288,10 +304,10 @@ def create_image_from_prompt(prompt, width, height):
                                  width=block_width,
                                  height=block_height,
                                  # denoising_end=high_noise_frac,
-                                 # output_type='latent', # dont need latent yet - we refine the image at full res
+                                 output_type='latent' if use_refiner else "pil", # dont need latent yet - we refine the image at full res
                                  # height=512,
                                  # width=512,
-                                 num_inference_steps=50).images[0]  # normally uses 50 steps
+                                 num_inference_steps=4).images[0]  # normally uses 50 steps
                 except Exception as e:
                     # just error out
                     traceback.print_exc()
@@ -303,15 +319,15 @@ def create_image_from_prompt(prompt, width, height):
                     # os.system("/usr/bin/bash kill -SIGHUP `pgrep gunicorn`")
                     # os.system("kill -1 `pgrep gunicorn`")
     # todo refine
-    # if image != None:
-    #     image = refiner(
-    #         prompt=prompt,
-    #         # width=block_width,
-    #         # height=block_height,
-    #         num_inference_steps=n_steps,
-    #         # denoising_start=high_noise_frac,
-    #         image=image,
-    #     ).images[0]
+    if image != None and use_refiner:
+        image = refiner(
+            prompt=prompt,
+            # width=block_width,
+            # height=block_height,
+            # num_inference_steps=n_steps, # default
+            # denoising_start=high_noise_frac,
+            image=image,
+        ).images[0]
     if width != block_width or height != block_height:
         # resize to original size width/height
         # find aspect ratio to scale up to that covers the original img input width/height

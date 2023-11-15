@@ -24,7 +24,9 @@ pip install -r requirements.txt
 pip install -r dev-requirements.txt
 
 cd models
-git clone https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0    
+git clone https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0
+git clone https://huggingface.co/segmind/SSD-1B
+git clone https://huggingface.co/latent-consistency/lcm-ssd-1b 
 
 # install stopwords
 python -c "import nltk; nltk.download('stopwords')"
