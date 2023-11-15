@@ -13,7 +13,7 @@ while True:
             if (datetime.now() - last_mod_time).seconds > 60 * 7:
                 # no progress for 7 minutes, restart/kill with -9
                 logger.info("restarting server to fix cuda issues (device side asserts)")
-                os.system("/usr/bin/bash kill -SIGHUP `pgrep gunicorn`")
+                os.system("/usr/bin/bash kill -9 `ps axjf | grep uvicorn | awk '{print $1}'`")
                 os.system("/usr/bin/bash kill -SIGHUP `pgrep uvicorn`")
                 os.system("kill -9 `pgrep gunicorn`")
                 os.system("kill -9 `pgrep uvicorn`")
