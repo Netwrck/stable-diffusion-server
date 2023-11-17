@@ -1,13 +1,16 @@
 simple stable diffusion server that saves images to cloud storage - returns links to google cloud storage
 
-## Creators
+## Shameless Plug from Maintainers
 [![netwrck logo](https://static.netwrck.com/static/img/netwrck-logo-colord256.png)](https://netwrck.com)
 
 Checkout [Voiced AI Characters to chat with](https://netwrck.com) at [netwrck.com](https://netwrck.com)
 
 Characters are narrated and written by many GPT models trained on 1000s of fantasy novels and chats.
 
-Also for LLMs for making Text - Checkout [Text-Generator.io](https://text-generator.io) for a Open Source text generator that uses many AI models to generate the best along with image understanding and OCR networks.
+For Vision LLMs for making Text - Checkout [Text-Generator.io](https://text-generator.io) for a Open Source text generator that uses many AI models to generate the best along with image understanding and OCR networks.
+
+For AI Art Generation checkout [eBank.nz AI Art Generator and Search Engine](https://ebank.nz)
+
 ## Setup
 
 . Create a virtual environment (optional)
