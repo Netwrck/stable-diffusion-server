@@ -14,15 +14,21 @@ from io import BytesIO
 # pipe = StableDiffusionImg2ImgPipeline.from_pretrained(model_id_or_path, torch_dtype=torch.float16, variant="fp16", safety_checker=None)
 # pipe = pipe.to(device)
 
-from diffusers import StableDiffusionXLImg2ImgPipeline
+from diffusers import StableDiffusionXLImg2ImgPipeline, StableDiffusionImg2ImgPipeline
 from diffusers.utils import load_image
 
 from stable_diffusion_server.utils import log_time
 
+# pipe = StableDiffusionXLImg2ImgPipeline.from_pretrained(
+# "stabilityai/stable-diffusion-xl-refiner-1.0",
+# # "models/stable-diffusion-xl-base-0.9",
+#     torch_dtype = torch.float16,
+#     use_safetensors=True,
+#     variant="fp16",
+# )
 pipe = StableDiffusionXLImg2ImgPipeline.from_pretrained(
-"stabilityai/stable-diffusion-xl-refiner-1.0",
-# "models/stable-diffusion-xl-base-0.9",
-    torch_dtype = torch.float16,
+    "segmind/SSD-1B", # models/SSD-1B
+    torch_dtype=torch.float16,
     use_safetensors=True,
     variant="fp16",
 )
@@ -38,15 +44,20 @@ pipe = pipe.to("cuda") #  # "LayerNormKernelImpl" not implemented for 'Half' err
 # init_image = Image.open("/mnt/c/Users/leepenkman/Pictures/aiart/ainostalgic-colorful-relaxing-chill-realistic-cartoon-Charcoal-illustration-fantasy-fauvist-abstract-impressionist-watercolor-painting-Background-location-scenery-amazing-wonderful-Dog-Shelter-Worker-Dog.webp").convert("RGB")
 # redo something? strength 1
 # init_image = Image.open("/home/lee/code/sdif/mask.png").convert("RGB")
-init_image = Image.open("/mnt/c/Users/leepenkman/Pictures/dogstretch.png").convert("RGB")
+init_image = Image.open("/home/lee/code/sdif/images/lee.jpg").convert("RGB")
+init_image = Image.open(str(Path("images/input4xscaled.png"))).convert("RGB")
+# init_image = Image.open("/mnt/c/Users/leepenkman/Pictures/dogstretch.png").convert("RGB")
 # init_image = Image.open("/mnt/c/Users/leepenkman/Pictures/dogcenter.png").convert("RGB")
 
 # init_image = init_image.resize((1080, 1920))
-init_image = init_image.resize((1920, 1080))
+# init_image = init_image.resize((1920, 1080))
 # init_image = init_image.resize((1024, 1024))
 
 prompt = "A fantasy landscape, trending on artstation, beautiful amazing unreal surreal gorgeous impressionism"
+
 prompt = "mouth open nostalgic colorful relaxing chill realistic cartoon Charcoal illustration fantasy fauvist abstract impressionist watercolor painting Background location scenery amazing wonderful Dog Shelter Worker Dog"
+prompt = "Realistic character cartoon Charcoal illustration fantasy impressionist watercolor painting"
+prompt = "8k high res"
 
 # images = pipe(prompt=prompt, image=init_image, strength=0.75, guidance_scale=7.5).images
 # images[0].save("fantasy_landscape.png")
@@ -55,16 +66,23 @@ prompt = "mouth open nostalgic colorful relaxing chill realistic cartoon Charcoa
 #
 # init_image = load_image(url).convert("RGB")
 # prompt = "a photo of an astronaut riding a horse on mars"
-study_dir = "images/study2"
+study_dir = "images/upscaler"
 Path(study_dir).mkdir(parents=True, exist_ok=True)
 
+# with log_time("img2img"):
+#     with torch.inference_mode():
+#         image = pipe(prompt=prompt, image=init_image, strength=0.75, guidance_scale=7.5).images[0]
+#         image.save(study_dir + "/test" + str(0.75) + "guidance_scale" + str(7.5) + ".png")
+#
 with log_time("img2img"):
     with torch.inference_mode():
         # for strength in range(.1, 1, .1):
-        for strength in np.linspace(.1, 1, 10):
-            image = pipe(prompt=prompt, image=init_image, strength=strength, guidance_scale=7.6).images[0]
+        for strength in np.linspace(.1, .8, 20):
+            image = pipe(prompt=prompt, image=init_image, strength=strength, guidance_scale=7.6,
+                         num_inference_steps=10
+                         ).images[0]
             image.save(
-                study_dir + "/fantasy_dogimgimgdogstretchopening" + str(strength) + "guidance_scale" + str(7.6) + ".png")
+                study_dir + "/lee" + str(strength) + "guidance_scale" + str(7.6) + ".png")
         #     # for guidance_scale in range(1, 10, .5):
         #     for guidance_scale in np.linspace(1, 100, 10):
         #         image = pipe(prompt=prompt, image=init_image, strength=strength, guidance_scale=guidance_scale).images[0]
