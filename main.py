@@ -10,17 +10,19 @@ from multiprocessing.pool import Pool
 from pathlib import Path
 from urllib.parse import quote_plus
 
+import cv2
 import numpy as np
 import nltk
 import torch
-from PIL.Image import Image
+from PIL import Image
 from diffusers import (
     DiffusionPipeline,
     StableDiffusionXLInpaintPipeline,
     UNet2DConditionModel,
     LCMScheduler,
     StableDiffusionInpaintPipeline,
-    StableDiffusionImg2ImgPipeline, StableDiffusionXLImg2ImgPipeline,
+    StableDiffusionImg2ImgPipeline, StableDiffusionXLImg2ImgPipeline, ControlNetModel,
+    StableDiffusionXLControlNetPipeline,
 )
 from diffusers.utils import load_image
 from fastapi import FastAPI
@@ -29,9 +31,12 @@ from loguru import logger
 from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import FileResponse
 from starlette.responses import JSONResponse
+from transformers import set_seed
 
 from env import BUCKET_PATH, BUCKET_NAME
 from stable_diffusion_server.bucket_api import check_if_blob_exists, upload_to_bucket
+from stable_diffusion_server.utils import log_time
+
 try:
     unet = UNet2DConditionModel.from_pretrained("models/lcm-ssd-1b", torch_dtype=torch.float16, variant="fp16")
 except OSError as e:
@@ -57,11 +62,11 @@ img2img = StableDiffusionXLImg2ImgPipeline(**all_components,
 
 # pipe = DiffusionPipeline.from_pretrained(
 #     "models/stable-diffusion-xl-base-1.0",
-#     torch_dtype=torch.bfloat16,
+#     torch_dtype=torch.float16,
 #     use_safetensors=True,
 #     variant="fp16",
 #     # safety_checker=None,
-# )  # todo try torch_dtype=bfloat16
+# )  # todo try torch_dtype=float16
 pipe.watermark = None
 
 pipe.to("cuda")
@@ -81,7 +86,7 @@ refiner.to("cuda")
 # img2img = StableDiffusionImg2ImgPipeline(**pipe.components)
 # inpaintpipe = StableDiffusionInpaintPipeline(**pipe.components)
 inpaintpipe = StableDiffusionXLInpaintPipeline.from_pretrained(
-    "models/stable-diffusion-xl-base-1.0", torch_dtype=torch.bfloat16, variant="fp16", use_safetensors=True,
+    "models/stable-diffusion-xl-base-1.0", torch_dtype=torch.float16, variant="fp16", use_safetensors=True,
     scheduler=pipe.scheduler,
     text_encoder=pipe.text_encoder,
     text_encoder_2=pipe.text_encoder_2,
@@ -91,6 +96,16 @@ inpaintpipe = StableDiffusionXLInpaintPipeline.from_pretrained(
     vae=pipe.vae,
     # load_connected_pipeline=
 )
+
+controlnet_conditioning_scale = 0.5  # recommended for good generalization
+controlnet = ControlNetModel.from_pretrained(
+    "diffusers/controlnet-canny-sdxl-1.0", torch_dtype=torch.float16
+)
+controlnet.to("cuda")
+controlnetpipe = StableDiffusionXLControlNetPipeline.from_pretrained(
+    "stabilityai/stable-diffusion-xl-base-1.0", controlnet=controlnet, **pipe.components
+)
+controlnetpipe.to("cuda")
 # # switch out to save gpu mem
 # del inpaintpipe.vae
 # del inpaintpipe.text_encoder_2
@@ -126,7 +141,7 @@ inpaint_refiner = StableDiffusionXLInpaintPipeline.from_pretrained(
     "stabilityai/stable-diffusion-xl-refiner-1.0",
     text_encoder_2=inpaintpipe.text_encoder_2,
     vae=inpaintpipe.vae,
-    torch_dtype=torch.bfloat16,
+    torch_dtype=torch.float16,
     use_safetensors=True,
     variant="fp16",
 
@@ -169,12 +184,7 @@ inpaint_refiner.watermark = None
 
 n_steps = 40
 high_noise_frac = 0.8
-# stylizer = StableDiffusionImg2ImgPipeline.from_pretrained(
-#     "stabilityai/stable-diffusion-xl-stylizer-1.0",
-#     torch_dtype=torch.float16,
-#     use_safetensors=True,
-#     variant="fp16",
-# )
+
 # if using torch < 2.0
 # pipe.enable_xformers_memory_efficient_attention()
 
@@ -243,23 +253,25 @@ def inpaint_and_upload_image(prompt: str, image_url:str, mask_url:str, save_path
 
 
 @app.get("/style_transfer_and_upload_image")
-def style_transfer_and_upload_image(prompt: str, image_url:str, save_path: str = "", strength:float=0.6):
+def style_transfer_and_upload_image(prompt: str, image_url:str, save_path: str = "", strength:float=0.6, canny=False):
     # todo also accept image bytes directly?
     path_components = save_path.split("/")[0:-1]
     final_name = save_path.split("/")[-1]
     if not path_components:
         path_components = []
     save_path = '/'.join(path_components) + quote_plus(final_name)
-    path = get_image_or_style_transfer_upload_to_cloud_storage(prompt, image_url, save_path, strength)
+    path = get_image_or_style_transfer_upload_to_cloud_storage(prompt, image_url, save_path, strength, canny)
     return JSONResponse({"path": path})
 
-def get_image_or_style_transfer_upload_to_cloud_storage(prompt:str,image_url:str, save_path:str, strength=0.6):
+
+
+def get_image_or_style_transfer_upload_to_cloud_storage(prompt:str,image_url:str, save_path:str, strength=0.6, canny=False):
     prompt = shorten_too_long_text(prompt)
     save_path = shorten_too_long_text(save_path)
     # check exists - todo cache this
     if check_if_blob_exists(save_path):
         return f"https://{BUCKET_NAME}/{BUCKET_PATH}/{save_path}"
-    bio = style_transfer_image_from_prompt(prompt, image_url, strength)
+    bio = style_transfer_image_from_prompt(prompt, image_url, strength, canny)
     if bio is None:
         return None # error thrown in pool
     link = upload_to_bucket(save_path, bio, is_bytesio=True)
@@ -289,17 +301,41 @@ def get_image_or_inpaint_upload_to_cloud_storage(prompt:str, image_url:str, mask
     link = upload_to_bucket(save_path, bio, is_bytesio=True)
     return link
 
-def style_transfer_image_from_prompt(prompt, image_url: str, strength=0.6):
+def style_transfer_image_from_prompt(prompt, image_url: str, strength=0.6, canny=False, input_pil=None):
     prompt = shorten_too_long_text(prompt)
     # image = pipe(prompt=prompt).images[0]
+
+    if not input_pil:
+        input_pil = load_image(image_url).convert("RGB")
+
+    canny_image = None
+    with log_time('canny'):
+        if canny:
+            in_image = np.array(input_pil)
+            in_image = cv2.Canny(in_image, 100, 200)
+            in_image = in_image[:, :, None]
+            in_image = np.concatenate([in_image, in_image, in_image], axis=2)
+            canny_image = Image.fromarray(in_image)
+            # reset seed to be more deterministic?
+            set_seed(42)
+
     try:
-        image = img2img(
-            prompt=prompt,
-            image=load_image(image_url).convert("RGB"),
-            num_inference_steps=4,
-            strength=strength,
-            guidance_scale=7.6
-        ).images[0]  # normally uses 50 steps
+        if canny:
+            # generate image
+            image=controlnetpipe(
+                prompt, controlnet_conditioning_scale=controlnet_conditioning_scale, image=canny_image,
+                num_inference_steps=4,
+
+            ).images[0]
+        else:
+            image = img2img(
+                prompt=prompt,
+                image=input_pil,
+                num_inference_steps=4,
+                strength=strength,
+                guidance_scale=7.6
+            ).images[0]  # normally uses 50 steps
+
     except Exception as e:
         # try rm stopwords + half the prompt
         # todo try prompt permutations
@@ -313,13 +349,21 @@ def style_transfer_image_from_prompt(prompt, image_url: str, strength=0.6):
         image = None
         if prompt:
             try:
-                image = img2img(
-                    prompt=prompt,
-                    image=load_image(image_url).convert("RGB"),
-                    num_inference_steps=4,
-                    strength=strength,
-                    guidance_scale=7.6
-                ).images[0]  # normally uses 50 steps
+                if canny:
+                    # generate image
+                    image = controlnetpipe(
+                        prompt, controlnet_conditioning_scale=controlnet_conditioning_scale, image=canny_image,
+                num_inference_steps=4,
+
+                    ).images[0]
+                else:
+                    image = img2img(
+                        prompt=prompt,
+                        image=input_pil,
+                        num_inference_steps=4,
+                        strength=strength,
+                        guidance_scale=7.6
+                    ).images[0]  # normally uses 50 steps
             except Exception as e:
                 # logger.info("trying to permute prompt")
                 # # try two swaps of the prompt/permutations
@@ -334,14 +378,21 @@ def style_transfer_image_from_prompt(prompt, image_url: str, strength=0.6):
                 logger.info(f"shortened prompt to: {len(prompt)}")
 
                 try:
-                    image = img2img(
-                        prompt=prompt,
-                        image=load_image(image_url).convert("RGB"),
-                        num_inference_steps=4,
+                    if canny:
+                        # generate image
+                        image = controlnetpipe(
+                            prompt, controlnet_conditioning_scale=controlnet_conditioning_scale, image=canny_image,
+                            num_inference_steps=4,
 
-                        strength=strength,
-                        guidance_scale=7.6
-                    ).images[0]  # normally uses 50 steps
+                        ).images[0]
+                    else:
+                        image = img2img(
+                            prompt=prompt,
+                            image=input_pil,
+                            num_inference_steps=4,
+                            strength=strength,
+                            guidance_scale=7.6
+                        ).images[0]  # normally uses 50 steps
                 except Exception as e:
                     # just error out
                     traceback.print_exc()
