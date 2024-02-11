@@ -8,6 +8,7 @@ from tqdm import tqdm
 
 from img2imgsdr import make_image
 from scripts.ebank_api import get_image
+from scripts.replace_special_chars import replace_special_chars
 
 # accept story text arg
 
@@ -36,12 +37,6 @@ story_dir.mkdir(parents=True, exist_ok=True)
 import pandas as pd
 # df = pd.read_parquet(current_dir / './midjourney-prompts/data/test-00000-of-00001.parquet')
 df = pd.read_parquet(current_dir / './midjourney-prompts/data/train-00000-of-00001.parquet') #todo train
-# df = pd.read_parquet(current_dir / './midjourney-prompts/data/validation-00000-of-00001.parquet')
-
-
-def replace_special_chars(str):
-    return str.replace("--", "").replace(":", '').replace("+", '').replace(",", '').replace(".", '').replace("""\"""", '').replace("'", '').replace("!", '').replace("?", '').replace(";", '').replace("(", '').replace(")", '').replace("/", '').replace("\\", '').replace("<", "").replace('>', '')
-
 print(df.size)
 for i, sentence in tqdm(enumerate(df['text'])):
     if i<66011:
@@ -65,7 +60,7 @@ for i, sentence in tqdm(enumerate(df['text'])):
         if not (story_dir / f"{save_name}.webp").exists():
             if i%2==0:
 
-                backdrop_image = get_image(prompt, f"{save_name}.webp")
+                backdrop_image = get_image(prompt, f"{save_name}")
                 continue
 
             image = make_image(prompt)
