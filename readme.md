@@ -66,7 +66,7 @@ http://localhost:8000/docs
 Check to see that "good Looking elf fantasy character" was created
 
 ![elf.png](https://storage.googleapis.com/static.netwrck.com/static/uploads/aiamazing-good-looking-elf-fantasy-character-awesome-portrait-2.webp)
-![elf2.png](https://static.netwrck.com/static/uploads/aigood-looking-elf-character-fantasy-good-looking-trending-fantastic-1.webp)
+![elf2.png](https://storage.googleapis.com/static.netwrck.com/static/uploads/aigood-looking-elf-character-fantasy-good-looking-trending-fantastic-1.webp)
 
 ### Testing
 
