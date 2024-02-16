@@ -65,8 +65,8 @@ http://localhost:8000/docs
 
 Check to see that "good Looking elf fantasy character" was created
 
-![elf.png](https://storage.googleapis.com/static.netwrck.com/static/uploads/created/elf.png)
-![elf2.png](https://storage.googleapis.com/static.netwrck.com/static/uploads/created/elf2.png)
+![elf.png](https://storage.googleapis.com/static.netwrck.com/static/uploads/aiamazing-good-looking-elf-fantasy-character-awesome-portrait-2.webp)
+![elf2.png](https://github.com/Netwrck/stable-diffusion-server/assets/2122616/81e86fb7-0419-4003-a67a-21470df225ea)
 
 ### Testing
 
