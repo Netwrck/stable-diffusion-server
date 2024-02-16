@@ -510,9 +510,10 @@ def create_image_from_prompt(prompt, width, height):
                     # os.system("kill -1 `pgrep gunicorn`")
     # todo refine
     if image != None and use_refiner:
+        #todo depend on q length?
         image = refiner(
             prompt=prompt,
-            num_inference_steps=5,
+            num_inference_steps=8,
             # width=block_width,
             # height=block_height,
             # num_inference_steps=n_steps, # default
