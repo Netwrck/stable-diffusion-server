@@ -37,15 +37,17 @@ from env import BUCKET_PATH, BUCKET_NAME
 from stable_diffusion_server.bucket_api import check_if_blob_exists, upload_to_bucket
 from stable_diffusion_server.utils import log_time
 
-try:
-    unet = UNet2DConditionModel.from_pretrained("models/lcm-ssd-1b", torch_dtype=torch.float16, variant="fp16")
-except OSError as e:
-    unet = UNet2DConditionModel.from_pretrained("latent-consistency/lcm-ssd-1b", torch_dtype=torch.float16, variant="fp16")
+# try:
+#     unet = UNet2DConditionModel.from_pretrained("models/lcm-ssd-1b", torch_dtype=torch.float16, variant="fp16")
+# except OSError as e:
+#     unet = UNet2DConditionModel.from_pretrained("latent-consistency/lcm-ssd-1b", torch_dtype=torch.float16, variant="fp16")
 
 try:
-    pipe = DiffusionPipeline.from_pretrained("models/SSD-1B", unet=unet, torch_dtype=torch.float16, variant="fp16")
+    # pipe = DiffusionPipeline.from_pretrained("models/SSD-1B", unet=unet, torch_dtype=torch.float16, variant="fp16")
+    pipe = DiffusionPipeline.from_pretrained("models/OpenDalle", torch_dtype=torch.float16, variant="fp16")
 except OSError as e:
-    pipe = DiffusionPipeline.from_pretrained("segmind/SSD-1B", unet=unet, torch_dtype=torch.float16, variant="fp16")
+    # pipe = DiffusionPipeline.from_pretrained("segmind/SSD-1B", unet=unet, torch_dtype=torch.float16, variant="fp16")
+    pipe = DiffusionPipeline.from_pretrained("dataautogpt3/OpenDalle", torch_dtype=torch.float16, variant="fp16")
 
 
 pipe.scheduler = LCMScheduler.from_config(pipe.scheduler.config)
