@@ -74,7 +74,9 @@ pipe.watermark = None
 pipe.to("cuda")
 
 refiner = DiffusionPipeline.from_pretrained(
-    "stabilityai/stable-diffusion-xl-refiner-1.0",
+    # "stabilityai/stable-diffusion-xl-refiner-1.0",
+    "dataautogpt3/OpenDalle",
+    # unet=pipe.unet,
     text_encoder_2=pipe.text_encoder_2,
     vae=pipe.vae,
     torch_dtype=torch.float16, # safer to use bfloat?
@@ -202,7 +204,7 @@ inpaint_refiner.unet = refiner.unet
 # inpaint_refiner.unet = torch.compile(inpaint_refiner.unet)
 
 app = FastAPI(
-    openapi_url="/static/openapi.json",
+    # openapi_url="/static/openapi.json",
     docs_url="/swagger-docs",
     redoc_url="/redoc",
     title="Generate Images Netwrck API",
@@ -220,6 +222,7 @@ app.add_middleware(
 )
 
 stopwords = nltk.corpus.stopwords.words("english")
+negative = "3 or 4 ears, never BUT ONE EAR, blurry, unclear, bad anatomy, extra limbs, poorly drawn face, poorly drawn hands, missing fingers, mangled teeth, weird teeth, poorly drawn eyes, blurry eyes, tan skin, oversaturated, teeth, poorly drawn, ugly, closed eyes, 3D, weird neck, duplicate, morbid, mutilated, out of frame, extra fingers, mutated hands, poorly drawn hands, poorly drawn face, mutation, deformed, blurry, bad anatomy, bad proportions, extra limbs, cloned face, disfigured, extra limbs, gross proportions, malformed limbs, missing arms, missing legs, extra arms, extra legs, mutated hands, fused fingers, too many fingers, text, logo, wordmark, writing, signature, blurry, bad anatomy, extra limbs, poorly drawn face, poorly drawn hands, missing fingers, Removed From Image Removed From Image flowers, Deformed, blurry, bad anatomy, disfigured, poorly drawn face, mutation, mutated, extra limb, ugly, poorly drawn hands, missing limb, blurry, floating limbs, disconnected limbs, malformed hands, blur, long body, ((((mutated hands and fingers)))), cartoon, 3d ((disfigured)), ((bad art)), ((deformed)), ((extra limbs)), ((dose up)), ((b&w)), Wierd colors, blurry, (((duplicate))), ((morbid)), ((mutilated)), [out of frame], extra fingers, mutated hands, ((poorly drawn hands)), (poorly drawn face)), (((mutation))), (((deformed))), ((ugly)), blurry, ((bad anatomy)), (((bad proportions))), (extra limbs)), cloned face, (((disfigured))), out of frame ugly, extra limbs (bad anatomy), gross proportions (malformed limbs), ((missing arms)), ((missing legs)), (((extra arms))), (((extra legs))), mutated hands, (fused fingers), (too many fingers), (((long neck))), Photoshop, videogame, ugly, tiling, poorly drawn hands, poorly drawn feet, poorly drawn face, out of frame, mutation, mutated, extra limbs, extra legs, extra arms, disfigured deformed cross-eye, ((body out of )), blurry, bad art, bad anatomy, 3d render, two faces, duplicate, coppy, multi, two, disfigured, kitsch, ugly, oversaturated, grain, low-res, Deformed, blurry, bad anatomy, disfigured, poorly drawn face, mutation, mutated, extra limb, ugly, poorly drawn hands, missing limb, blurry, floating limbs, disconnected limbs, malformed hands, blur, out of focus, long neck, long body, ugly, disgusting, poorly drawn, childish, mutilated, mangled, old ugly, tiling, poorly drawn hands, poorly drawn feet, poorly drawn face, out of frame, extra limbs, disfigured, deformed, body out of frame, blurry, bad anatomy, blurred, watermark, grainy, signature, cut off, draf, blurry, bad anatomy, extra limbs, poorly drawn face, poorly drawn hands, missing fingers"
 
 
 @app.get("/make_image")
@@ -442,6 +445,7 @@ def create_image_from_prompt(prompt, width, height):
     # image = pipe(prompt=prompt).images[0]
     try:
         image = pipe(prompt=prompt,
+                negative_prompt=negative,
                      width=block_width,
                      height=block_height,
                      # denoising_end=high_noise_frac,
@@ -463,6 +467,7 @@ def create_image_from_prompt(prompt, width, height):
         if prompt:
             try:
                 image = pipe(prompt=prompt,
+                        negative_prompt=negative,
                              width=block_width,
                              height=block_height,
                              # denoising_end=high_noise_frac,
@@ -485,6 +490,7 @@ def create_image_from_prompt(prompt, width, height):
 
                 try:
                     image = pipe(prompt=prompt,
+                            negative_prompt=negative,
                                  width=block_width,
                                  height=block_height,
                                  # denoising_end=high_noise_frac,
@@ -506,6 +512,7 @@ def create_image_from_prompt(prompt, width, height):
     if image != None and use_refiner:
         image = refiner(
             prompt=prompt,
+            num_inference_steps=5,
             # width=block_width,
             # height=block_height,
             # num_inference_steps=n_steps, # default
