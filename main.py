@@ -10,17 +10,19 @@ from multiprocessing.pool import Pool
 from pathlib import Path
 from urllib.parse import quote_plus
 
+import cv2
 import numpy as np
 import nltk
 import torch
-from PIL.Image import Image
+from PIL import Image
 from diffusers import (
     DiffusionPipeline,
     StableDiffusionXLInpaintPipeline,
     UNet2DConditionModel,
     LCMScheduler,
     StableDiffusionInpaintPipeline,
-    StableDiffusionImg2ImgPipeline,
+    StableDiffusionImg2ImgPipeline, StableDiffusionXLImg2ImgPipeline, ControlNetModel,
+    StableDiffusionXLControlNetPipeline,
 )
 from diffusers.utils import load_image
 from fastapi import FastAPI
@@ -29,22 +31,42 @@ from loguru import logger
 from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import FileResponse
 from starlette.responses import JSONResponse
+from transformers import set_seed
 
 from env import BUCKET_PATH, BUCKET_NAME
 from stable_diffusion_server.bucket_api import check_if_blob_exists, upload_to_bucket
+from stable_diffusion_server.utils import log_time
 
-unet = UNet2DConditionModel.from_pretrained("models/lcm-ssd-1b", torch_dtype=torch.float16, variant="fp16")
-pipe = DiffusionPipeline.from_pretrained("models/SSD-1B", unet=unet, torch_dtype=torch.float16, variant="fp16")
+try:
+    unet = UNet2DConditionModel.from_pretrained("models/lcm-ssd-1b", torch_dtype=torch.float16, variant="fp16")
+except OSError as e:
+    unet = UNet2DConditionModel.from_pretrained("latent-consistency/lcm-ssd-1b", torch_dtype=torch.float16, variant="fp16")
+
+try:
+    pipe = DiffusionPipeline.from_pretrained("models/SSD-1B", unet=unet, torch_dtype=torch.float16, variant="fp16")
+except OSError as e:
+    pipe = DiffusionPipeline.from_pretrained("segmind/SSD-1B", unet=unet, torch_dtype=torch.float16, variant="fp16")
+
 
 pipe.scheduler = LCMScheduler.from_config(pipe.scheduler.config)
 
+all_components = pipe.components
+# all_components.pop("scheduler")
+# all_components.pop("text_encoder")
+# all_components.pop("text_encoder_2")
+# all_components.pop("tokenizer")
+# all_components.pop("tokenizer_2")
+
+img2img = StableDiffusionXLImg2ImgPipeline(**all_components,
+    )
+
 # pipe = DiffusionPipeline.from_pretrained(
 #     "models/stable-diffusion-xl-base-1.0",
-#     torch_dtype=torch.bfloat16,
+#     torch_dtype=torch.float16,
 #     use_safetensors=True,
 #     variant="fp16",
 #     # safety_checker=None,
-# )  # todo try torch_dtype=bfloat16
+# )  # todo try torch_dtype=float16
 pipe.watermark = None
 
 pipe.to("cuda")
@@ -64,7 +86,7 @@ refiner.to("cuda")
 # img2img = StableDiffusionImg2ImgPipeline(**pipe.components)
 # inpaintpipe = StableDiffusionInpaintPipeline(**pipe.components)
 inpaintpipe = StableDiffusionXLInpaintPipeline.from_pretrained(
-    "models/stable-diffusion-xl-base-1.0", torch_dtype=torch.bfloat16, variant="fp16", use_safetensors=True,
+    "models/stable-diffusion-xl-base-1.0", torch_dtype=torch.float16, variant="fp16", use_safetensors=True,
     scheduler=pipe.scheduler,
     text_encoder=pipe.text_encoder,
     text_encoder_2=pipe.text_encoder_2,
@@ -74,6 +96,16 @@ inpaintpipe = StableDiffusionXLInpaintPipeline.from_pretrained(
     vae=pipe.vae,
     # load_connected_pipeline=
 )
+
+controlnet_conditioning_scale = 0.5  # recommended for good generalization
+controlnet = ControlNetModel.from_pretrained(
+    "diffusers/controlnet-canny-sdxl-1.0", torch_dtype=torch.float16
+)
+controlnet.to("cuda")
+controlnetpipe = StableDiffusionXLControlNetPipeline.from_pretrained(
+    "stabilityai/stable-diffusion-xl-base-1.0", controlnet=controlnet, **pipe.components
+)
+controlnetpipe.to("cuda")
 # # switch out to save gpu mem
 # del inpaintpipe.vae
 # del inpaintpipe.text_encoder_2
@@ -109,7 +141,7 @@ inpaint_refiner = StableDiffusionXLInpaintPipeline.from_pretrained(
     "stabilityai/stable-diffusion-xl-refiner-1.0",
     text_encoder_2=inpaintpipe.text_encoder_2,
     vae=inpaintpipe.vae,
-    torch_dtype=torch.bfloat16,
+    torch_dtype=torch.float16,
     use_safetensors=True,
     variant="fp16",
 
@@ -226,6 +258,31 @@ def inpaint_and_upload_image(prompt: str, image_url:str, mask_url:str, save_path
     return JSONResponse({"path": path})
 
 
+@app.get("/style_transfer_and_upload_image")
+def style_transfer_and_upload_image(prompt: str, image_url:str, save_path: str = "", strength:float=0.6, canny=False):
+    # todo also accept image bytes directly?
+    path_components = save_path.split("/")[0:-1]
+    final_name = save_path.split("/")[-1]
+    if not path_components:
+        path_components = []
+    save_path = '/'.join(path_components) + quote_plus(final_name)
+    path = get_image_or_style_transfer_upload_to_cloud_storage(prompt, image_url, save_path, strength, canny)
+    return JSONResponse({"path": path})
+
+
+
+def get_image_or_style_transfer_upload_to_cloud_storage(prompt:str,image_url:str, save_path:str, strength=0.6, canny=False):
+    prompt = shorten_too_long_text(prompt)
+    save_path = shorten_too_long_text(save_path)
+    # check exists - todo cache this
+    if check_if_blob_exists(save_path):
+        return f"https://{BUCKET_NAME}/{BUCKET_PATH}/{save_path}"
+    bio = style_transfer_image_from_prompt(prompt, image_url, strength, canny)
+    if bio is None:
+        return None # error thrown in pool
+    link = upload_to_bucket(save_path, bio, is_bytesio=True)
+    return link
+
 def get_image_or_create_upload_to_cloud_storage(prompt:str,width:int, height:int, save_path:str):
     prompt = shorten_too_long_text(prompt)
     save_path = shorten_too_long_text(save_path)
@@ -237,6 +294,7 @@ def get_image_or_create_upload_to_cloud_storage(prompt:str,width:int, height:int
         return None # error thrown in pool
     link = upload_to_bucket(save_path, bio, is_bytesio=True)
     return link
+
 def get_image_or_inpaint_upload_to_cloud_storage(prompt:str, image_url:str, mask_url:str, save_path:str):
     prompt = shorten_too_long_text(prompt)
     save_path = shorten_too_long_text(save_path)
@@ -249,6 +307,130 @@ def get_image_or_inpaint_upload_to_cloud_storage(prompt:str, image_url:str, mask
     link = upload_to_bucket(save_path, bio, is_bytesio=True)
     return link
 
+def style_transfer_image_from_prompt(prompt, image_url: str, strength=0.6, canny=False, input_pil=None):
+    prompt = shorten_too_long_text(prompt)
+    # image = pipe(prompt=prompt).images[0]
+
+    if not input_pil:
+        input_pil = load_image(image_url).convert("RGB")
+
+    canny_image = None
+    with log_time('canny'):
+        if canny:
+            in_image = np.array(input_pil)
+            in_image = cv2.Canny(in_image, 100, 200)
+            in_image = in_image[:, :, None]
+            in_image = np.concatenate([in_image, in_image, in_image], axis=2)
+            canny_image = Image.fromarray(in_image)
+            # reset seed to be more deterministic?
+            set_seed(42)
+
+    try:
+        if canny:
+            # generate image
+            image=controlnetpipe(
+                prompt, controlnet_conditioning_scale=controlnet_conditioning_scale, image=canny_image,
+                num_inference_steps=4,
+
+            ).images[0]
+        else:
+            image = img2img(
+                prompt=prompt,
+                image=input_pil,
+                num_inference_steps=4,
+                strength=strength,
+                guidance_scale=7.6
+            ).images[0]  # normally uses 50 steps
+
+    except Exception as e:
+        # try rm stopwords + half the prompt
+        # todo try prompt permutations
+        logger.info(f"trying to shorten prompt of length {len(prompt)}")
+
+        prompt = ' '.join((word for word in prompt if word not in stopwords))
+        prompts = prompt.split()
+
+        prompt = ' '.join(prompts[:len(prompts) // 2])
+        logger.info(f"shortened prompt to: {len(prompt)}")
+        image = None
+        if prompt:
+            try:
+                if canny:
+                    # generate image
+                    image = controlnetpipe(
+                        prompt, controlnet_conditioning_scale=controlnet_conditioning_scale, image=canny_image,
+                num_inference_steps=4,
+
+                    ).images[0]
+                else:
+                    image = img2img(
+                        prompt=prompt,
+                        image=input_pil,
+                        num_inference_steps=4,
+                        strength=strength,
+                        guidance_scale=7.6
+                    ).images[0]  # normally uses 50 steps
+            except Exception as e:
+                # logger.info("trying to permute prompt")
+                # # try two swaps of the prompt/permutations
+                # prompt = prompt.split()
+                # prompt = ' '.join(permutations(prompt, 2).__next__())
+                logger.info(f"trying to shorten prompt of length {len(prompt)}")
+
+                prompt = ' '.join((word for word in prompt if word not in stopwords))
+                prompts = prompt.split()
+
+                prompt = ' '.join(prompts[:len(prompts) // 2])
+                logger.info(f"shortened prompt to: {len(prompt)}")
+
+                try:
+                    if canny:
+                        # generate image
+                        image = controlnetpipe(
+                            prompt, controlnet_conditioning_scale=controlnet_conditioning_scale, image=canny_image,
+                            num_inference_steps=4,
+
+                        ).images[0]
+                    else:
+                        image = img2img(
+                            prompt=prompt,
+                            image=input_pil,
+                            num_inference_steps=4,
+                            strength=strength,
+                            guidance_scale=7.6
+                        ).images[0]  # normally uses 50 steps
+                except Exception as e:
+                    # just error out
+                    traceback.print_exc()
+                    raise e
+                    # logger.info("restarting server to fix cuda issues (device side asserts)")
+                    # todo fix device side asserts instead of restart to fix
+                    # todo only restart the correct gunicorn
+                    # this could be really annoying if your running other gunicorns on your machine which also get restarted
+                    # os.system("/usr/bin/bash kill -SIGHUP `pgrep gunicorn`")
+                    # os.system("kill -1 `pgrep gunicorn`")
+    # todo refine
+    # if image != None and use_refiner:
+    #     image = refiner(
+    #         prompt=prompt,
+    #         # width=block_width,
+    #         # height=block_height,
+    #         # num_inference_steps=n_steps, # default
+    #         # denoising_start=high_noise_frac,
+    #         image=image,
+    #     ).images[0]
+    # if width != block_width or height != block_height:
+    #     # resize to original size width/height
+    #     # find aspect ratio to scale up to that covers the original img input width/height
+    #     scale_up_ratio = max(width / block_width, height / block_height)
+    #     image = image.resize((math.ceil(block_width * scale_up_ratio), math.ceil(height * scale_up_ratio)))
+    #     # crop image to original size
+    #     image = image.crop((0, 0, width, height))
+    # try:
+    #     # gc.collect()
+
+
+    return image
 # multiprocessing.set_start_method('spawn', True)
 # processes_pool = Pool(1) # cant do too much at once or OOM errors happen
 # def create_image_from_prompt_sync(prompt):
@@ -382,7 +564,8 @@ def inpaint_image_from_prompt(prompt, image_url: str, mask_url: str):
 
     init_image = load_image(image_url).convert("RGB")
     mask_image = load_image(mask_url).convert("RGB") # why rgb for a 1 channel mask?
-    num_inference_steps = 75
+    # num_inference_steps = 75 # causes weird error ValueError: The combination of `original_steps x strength`: 50 x 1.0 is smaller than `num_inference_steps`: 75. Make sure to either reduce `num_inference_steps` to a value smaller than 50 or increase `strength` to a value higher than 1.5.
+    num_inference_steps = 40
     high_noise_frac = 0.7
 
     try:
