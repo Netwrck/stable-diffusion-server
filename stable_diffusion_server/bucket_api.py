@@ -17,10 +17,6 @@ def check_if_blob_exists(name: object) -> object:
 def upload_to_bucket(blob_name, path_to_file_on_local_disk, is_bytesio=False):
     """ Upload data to a bucket"""
     blob = bucket.blob(get_name_with_path(blob_name))
-    # check if PIL image
-    # if type(path_to_file_on_local_disk) == 'PIL.Image.Image':
-    if isinstance(path_to_file_on_local_disk, Image):
-        path_to_file_on_local_disk = path_to_file_on_local_disk.tobytes()
     if not is_bytesio:
         blob.upload_from_filename(path_to_file_on_local_disk)
     else:

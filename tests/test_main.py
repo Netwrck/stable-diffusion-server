@@ -1,11 +1,16 @@
 from PIL import Image
 
-from main import create_image_from_prompt, inpaint_image_from_prompt, style_transfer_image_from_prompt
+from main import (
+    create_image_from_prompt,
+    inpaint_image_from_prompt,
+    style_transfer_image_from_prompt,
+)
 
 
 def test_create_image_from_prompt_sync():
     imagebytesresult = create_image_from_prompt("a test prompt", 512, 512)
     assert imagebytesresult is not None
+
 
 def test_inpaint_from_prompt_sync():
     img_url = "https://raw.githubusercontent.com/CompVis/latent-diffusion/main/data/inpainting_examples/overture-creations-5sI6fQgYIuo.png"
@@ -36,11 +41,14 @@ def test_style_transfer_from_prompt_sync_controlnet():
 
     assert imagepilresult is not None
 
+
 def test_style_transfer_from_prompt_sync_control_pil():
     img = Image.open("tests/castlesketch-big.jpg").convert("RGB")
     img = Image.open("tests/owl.png").convert("RGB")
 
-    imagepilresult = style_transfer_image_from_prompt("a owl cinematic wonderful realistic owl perching on log", None, 0.6, True, img)
+    imagepilresult = style_transfer_image_from_prompt(
+        "a owl cinematic wonderful realistic owl perching on log", None, 0.6, True, img
+    )
     # save to disk
     imagepilresult.save("teststyletransfer-cnet-tmp-owl.png")
 
