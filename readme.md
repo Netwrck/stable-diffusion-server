@@ -60,7 +60,7 @@ Response
 {"path":"https://storage.googleapis.com/static.netwrck.com/static/uploads/created/elf.png"}
 ```
 
-http://localhost:8000/docs
+http://localhost:8000/swagger-docs
 
 
 Check to see that "good Looking elf fantasy character" was created
