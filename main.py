@@ -55,7 +55,7 @@ except OSError as e:
         "dataautogpt3/OpenDalle", torch_dtype=torch.float16, variant="fp16"
     )
 
-
+old_scheduler = pipe.scheduler
 pipe.scheduler = LCMScheduler.from_config(pipe.scheduler.config)
 
 all_components = pipe.components
@@ -466,6 +466,21 @@ def style_transfer_image_from_prompt(
     #     image = image.crop((0, 0, width, height))
     # try:
     #     # gc.collect()
+
+    # add a refinement pass because the image is not always perfect/depending on the model if its not well tuned for LCM it might need more passes
+    lcm_scheduler = img2img.scheduler
+    img2img.scheduler = old_scheduler
+
+    image = img2img(
+        prompt=prompt,
+        image=image,
+        num_inference_steps=8,
+        strength=strength,
+        guidance_scale=7.6,
+    ).images[0]
+    #revert scheduler
+    img2img.scheduler = lcm_scheduler
+    
 
     return image_to_bytes(image)
 
