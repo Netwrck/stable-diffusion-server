@@ -80,16 +80,17 @@ pipe.watermark = None
 
 pipe.to("cuda")
 
-refiner = DiffusionPipeline.from_pretrained(
-    # "stabilityai/stable-diffusion-xl-refiner-1.0",
-    "dataautogpt3/OpenDalle",
-    # unet=pipe.unet,
-    text_encoder_2=pipe.text_encoder_2,
-    vae=pipe.vae,
-    torch_dtype=torch.float16,  # safer to use bfloat?
-    use_safetensors=True,
-    variant="fp16",  # remember not to download the big model
-)
+# refiner = DiffusionPipeline.from_pretrained(
+#     # "stabilityai/stable-diffusion-xl-refiner-1.0",
+#     "dataautogpt3/OpenDalle",
+#     # unet=pipe.unet,
+#     text_encoder_2=pipe.text_encoder_2,
+#     vae=pipe.vae,
+#     torch_dtype=torch.float16,  # safer to use bfloat?
+#     use_safetensors=True,
+#     variant="fp16",  # remember not to download the big model
+# )
+refiner = pipe # same model in this case
 refiner.watermark = None
 refiner.to("cuda")
 
@@ -374,9 +375,10 @@ def style_transfer_image_from_prompt(
                 0
             ]  # normally uses 50 steps
 
-    except Exception as _err:
+    except Exception as err:
         # try rm stopwords + half the prompt
         # todo try prompt permutations
+        logger.error(err)
         logger.info(f"trying to shorten prompt of length {len(prompt)}")
 
         prompt = " ".join((word for word in prompt if word not in stopwords))
@@ -465,7 +467,7 @@ def style_transfer_image_from_prompt(
     # try:
     #     # gc.collect()
 
-    return image
+    return image_to_bytes(image)
 
 
 # multiprocessing.set_start_method('spawn', True)
@@ -597,6 +599,15 @@ def create_image_from_prompt(prompt, width, height):
     #     os.system("/usr/bin/bash kill -SIGHUP `pgrep gunicorn`")
     #     os.system("kill -1 `pgrep gunicorn`")
     # save as bytesio
+
+    # touch progress.txt file - if we dont do this we get restarted by supervisor/other processes for reliability
+    with open("progress.txt", "w") as f:
+        current_time = datetime.now().strftime("%H:%M:%S")
+        f.write(f"{current_time}")
+    return image_to_bytes(image)
+
+
+def image_to_bytes(image):
     bs = BytesIO()
 
     bright_count = np.sum(np.array(image) > 0)
@@ -605,7 +616,7 @@ def create_image_from_prompt(prompt, width, height):
         logger.info("restarting server to fix cuda issues (device side asserts)")
         #     # todo fix device side asserts instead of restart to fix
         #     # todo only restart the correct gunicorn
-        #     # this could be really annoying if your running other gunicorns on your machine which also get restarted
+        # this could be really annoying if your running other gunicorns on your machine which also get restarted
         os.system("/usr/bin/bash kill -SIGHUP `pgrep gunicorn`")
         os.system("kill -1 `pgrep gunicorn`")
         os.system("/usr/bin/bash kill -SIGHUP `pgrep uvicorn`")
@@ -614,12 +625,7 @@ def create_image_from_prompt(prompt, width, height):
         return None
     image.save(bs, quality=85, optimize=True, format="webp")
     bio = bs.getvalue()
-    # touch progress.txt file - if we dont do this we get restarted by supervisor/other processes for reliability
-    with open("progress.txt", "w") as f:
-        current_time = datetime.now().strftime("%H:%M:%S")
-        f.write(f"{current_time}")
     return bio
-
 
 def inpaint_image_from_prompt(prompt, image_url: str, mask_url: str):
     prompt = shorten_too_long_text(prompt)
@@ -718,29 +724,13 @@ def inpaint_image_from_prompt(prompt, image_url: str, mask_url: str):
     #     # this could be really annoying if your running other gunicorns on your machine which also get restarted
     #     os.system("/usr/bin/bash kill -SIGHUP `pgrep gunicorn`")
     #     os.system("kill -1 `pgrep gunicorn`")
-    # save as bytesio
-    bs = BytesIO()
 
-    bright_count = np.sum(np.array(image) > 0)
-    if bright_count == 0:
-        # we have a black image, this is an error likely we need a restart
-        logger.info("restarting server to fix cuda issues (device side asserts)")
-        #     # todo fix device side asserts instead of restart to fix
-        #     # todo only restart the correct gunicorn
-        #     # this could be really annoying if your running other gunicorns on your machine which also get restarted
-        os.system("/usr/bin/bash kill -SIGHUP `pgrep gunicorn`")
-        os.system("kill -1 `pgrep gunicorn`")
-        os.system("/usr/bin/bash kill -SIGHUP `pgrep uvicorn`")
-        os.system("kill -1 `pgrep uvicorn`")
 
-        return None
-    image.save(bs, quality=85, optimize=True, format="webp")
-    bio = bs.getvalue()
     # touch progress.txt file - if we dont do this we get restarted by supervisor/other processes for reliability
     with open("progress.txt", "w") as f:
         current_time = datetime.now().strftime("%H:%M:%S")
         f.write(f"{current_time}")
-    return bio
+    return image_to_bytes(image)
 
 
 def shorten_too_long_text(prompt):
