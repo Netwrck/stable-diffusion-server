@@ -49,16 +49,22 @@ from stable_diffusion_server.utils import log_time
 try:
     # pipe = DiffusionPipeline.from_pretrained("models/SSD-1B", unet=unet, torch_dtype=torch.float16, variant="fp16")
     pipe = DiffusionPipeline.from_pretrained(
-        "models/OpenDalle", torch_dtype=torch.float16, variant="fp16"
+        "models/ProteusV0.2", torch_dtype=torch.float16, variant="fp16"
     )
 except OSError as e:
     # pipe = DiffusionPipeline.from_pretrained("segmind/SSD-1B", unet=unet, torch_dtype=torch.float16, variant="fp16")
     pipe = DiffusionPipeline.from_pretrained(
-        "dataautogpt3/OpenDalle", torch_dtype=torch.float16, variant="fp16"
+        "dataautogpt3/ProteusV0.2", torch_dtype=torch.float16, variant="fp16"
     )
 
 old_scheduler = pipe.scheduler
 pipe.scheduler = LCMScheduler.from_config(pipe.scheduler.config)
+
+if os.path.exists("models/lcm-lora-sdxl"):
+    pipe.load_lora_weights("models/lcm-lora-sdxl", adapter_name="lcm" )
+else:
+    pipe.load_lora_weights("latent-consistency/lcm-lora-sdxl", adapter_name="lcm")
+pipe.set_adapters(["lcm"], adapter_weights=[1.0])
 
 all_components = pipe.components
 # all_components.pop("scheduler")
@@ -83,15 +89,16 @@ pipe.watermark = None
 pipe.to("cuda")
 
 # deepcache
-from DeepCache import DeepCacheSDHelper
-helper = DeepCacheSDHelper(pipe=pipe)
-helper.set_params(
-    cache_interval=3,
-    cache_branch_id=0,
-)
-helper.enable()
+# from DeepCache import DeepCacheSDHelper
+
+# helper = DeepCacheSDHelper(pipe=pipe)
+# helper.set_params(
+#     cache_interval=3,
+#     cache_branch_id=0,
+# )
+# helper.enable()
 # token merging
-tomesd.apply_patch(pipeline, ratio=0.2) # light speedup
+tomesd.apply_patch(pipe, ratio=0.2)  # light speedup
 
 
 # refiner = DiffusionPipeline.from_pretrained(
@@ -104,7 +111,10 @@ tomesd.apply_patch(pipeline, ratio=0.2) # light speedup
 #     use_safetensors=True,
 #     variant="fp16",  # remember not to download the big model
 # )
-refiner = pipe # same model in this case
+refiner = pipe  # same model in this case
+refiner.scheduler = old_scheduler
+
+
 refiner.watermark = None
 refiner.to("cuda")
 
@@ -496,9 +506,8 @@ def style_transfer_image_from_prompt(
         strength=strength,
         guidance_scale=7.6,
     ).images[0]
-    #revert scheduler
+    # revert scheduler
     img2img.scheduler = lcm_scheduler
-    
 
     return image_to_bytes(image)
 
@@ -528,9 +537,7 @@ def create_image_from_prompt(prompt, width, height):
             # height=512,
             # width=512,
             num_inference_steps=4,
-        ).images[
-            0
-        ]  # normally uses 50 steps
+        ).images[0]
     except Exception as e:
         # try rm stopwords + half the prompt
         # todo try prompt permutations
@@ -554,9 +561,7 @@ def create_image_from_prompt(prompt, width, height):
                     # height=512,
                     # width=512,
                     num_inference_steps=4,
-                ).images[
-                    0
-                ]  # normally uses 50 steps
+                ).images[0]
             except Exception as e:
                 # logger.info("trying to permute prompt")
                 # # try two swaps of the prompt/permutations
@@ -577,15 +582,13 @@ def create_image_from_prompt(prompt, width, height):
                         width=block_width,
                         height=block_height,
                         # denoising_end=high_noise_frac,
-                        output_type="latent"
-                        if use_refiner
-                        else "pil",  # dont need latent yet - we refine the image at full res
+                        output_type=(
+                            "latent" if use_refiner else "pil"
+                        ),  # dont need latent yet - we refine the image at full res
                         # height=512,
                         # width=512,
                         num_inference_steps=4,
-                    ).images[
-                        0
-                    ]  # normally uses 50 steps
+                    ).images[0]
                 except Exception as e:
                     # just error out
                     traceback.print_exc()
@@ -599,15 +602,17 @@ def create_image_from_prompt(prompt, width, height):
     # todo refine
     if image != None and use_refiner:
         # todo depend on q length?
+        refiner.set_adapters(["lcm"], adapter_weights=[0]) # turn lcm off temporarily
         image = refiner(
             prompt=prompt,
-            num_inference_steps=8,
+            num_inference_steps=12,
             # width=block_width,
             # height=block_height,
             # num_inference_steps=n_steps, # default
             # denoising_start=high_noise_frac,
             image=image,
         ).images[0]
+        pipe.set_adapters(["lcm"], adapter_weights=[1.0]) # turn lcm back on
     if width != block_width or height != block_height:
         # resize to original size width/height
         # find aspect ratio to scale up to that covers the original img input width/height
@@ -659,6 +664,7 @@ def image_to_bytes(image):
     image.save(bs, quality=85, optimize=True, format="webp")
     bio = bs.getvalue()
     return bio
+
 
 def inpaint_image_from_prompt(prompt, image_url: str, mask_url: str):
     prompt = shorten_too_long_text(prompt)
@@ -757,7 +763,6 @@ def inpaint_image_from_prompt(prompt, image_url: str, mask_url: str):
     #     # this could be really annoying if your running other gunicorns on your machine which also get restarted
     #     os.system("/usr/bin/bash kill -SIGHUP `pgrep gunicorn`")
     #     os.system("kill -1 `pgrep gunicorn`")
-
 
     # touch progress.txt file - if we dont do this we get restarted by supervisor/other processes for reliability
     with open("progress.txt", "w") as f:
