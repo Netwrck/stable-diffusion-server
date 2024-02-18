@@ -10,6 +10,8 @@ from multiprocessing.pool import Pool
 from pathlib import Path
 from urllib.parse import quote_plus
 
+import tomesd
+
 import cv2
 import numpy as np
 import nltk
@@ -79,6 +81,18 @@ img2img = StableDiffusionXLImg2ImgPipeline(
 pipe.watermark = None
 
 pipe.to("cuda")
+
+# deepcache
+from DeepCache import DeepCacheSDHelper
+helper = DeepCacheSDHelper(pipe=pipe)
+helper.set_params(
+    cache_interval=3,
+    cache_branch_id=0,
+)
+helper.enable()
+# token merging
+tomesd.apply_patch(pipeline, ratio=0.2) # light speedup
+
 
 # refiner = DiffusionPipeline.from_pretrained(
 #     # "stabilityai/stable-diffusion-xl-refiner-1.0",
@@ -239,7 +253,8 @@ negative = "3 or 4 ears, never BUT ONE EAR, blurry, unclear, bad anatomy, extra 
 def make_image(prompt: str, save_path: str = ""):
     if Path(save_path).exists():
         return FileResponse(save_path, media_type="image/png")
-    image = pipe(prompt=prompt, num_inference_steps=4).images[0]
+    with torch.inference_mode():
+        image = pipe(prompt=prompt, num_inference_steps=4).images[0]
     if not save_path:
         save_path = f"images/{prompt}.png"
     image.save(save_path)
@@ -298,7 +313,8 @@ def get_image_or_style_transfer_upload_to_cloud_storage(
     # check exists - todo cache this
     if check_if_blob_exists(save_path):
         return f"https://{BUCKET_NAME}/{BUCKET_PATH}/{save_path}"
-    bio = style_transfer_image_from_prompt(prompt, image_url, strength, canny)
+    with torch.inference_mode():
+        bio = style_transfer_image_from_prompt(prompt, image_url, strength, canny)
     if bio is None:
         return None  # error thrown in pool
     link = upload_to_bucket(save_path, bio, is_bytesio=True)
@@ -313,7 +329,8 @@ def get_image_or_create_upload_to_cloud_storage(
     # check exists - todo cache this
     if check_if_blob_exists(save_path):
         return f"https://{BUCKET_NAME}/{BUCKET_PATH}/{save_path}"
-    bio = create_image_from_prompt(prompt, width, height)
+    with torch.inference_mode():
+        bio = create_image_from_prompt(prompt, width, height)
     if bio is None:
         return None  # error thrown in pool
     link = upload_to_bucket(save_path, bio, is_bytesio=True)
@@ -328,7 +345,8 @@ def get_image_or_inpaint_upload_to_cloud_storage(
     # check exists - todo cache this
     if check_if_blob_exists(save_path):
         return f"https://{BUCKET_NAME}/{BUCKET_PATH}/{save_path}"
-    bio = inpaint_image_from_prompt(prompt, image_url, mask_url)
+    with torch.inference_mode():
+        bio = inpaint_image_from_prompt(prompt, image_url, mask_url)
     if bio is None:
         return None  # error thrown in pool
     link = upload_to_bucket(save_path, bio, is_bytesio=True)
