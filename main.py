@@ -60,11 +60,11 @@ except OSError as e:
 old_scheduler = pipe.scheduler
 pipe.scheduler = LCMScheduler.from_config(pipe.scheduler.config)
 
-if os.path.exists("models/lcm-lora-sdxl"):
-    pipe.load_lora_weights("models/lcm-lora-sdxl", adapter_name="lcm" )
-else:
-    pipe.load_lora_weights("latent-consistency/lcm-lora-sdxl", adapter_name="lcm")
-pipe.set_adapters(["lcm"], adapter_weights=[1.0])
+# if os.path.exists("models/lcm-lora-sdxl"):
+#     pipe.load_lora_weights("models/lcm-lora-sdxl", adapter_name="lcm")
+# else:
+#     pipe.load_lora_weights("latent-consistency/lcm-lora-sdxl", adapter_name="lcm")
+# pipe.set_adapters(["lcm"], adapter_weights=[1.0])
 
 all_components = pipe.components
 # all_components.pop("scheduler")
@@ -89,14 +89,14 @@ pipe.watermark = None
 pipe.to("cuda")
 
 # deepcache
-# from DeepCache import DeepCacheSDHelper
+from DeepCache import DeepCacheSDHelper
 
-# helper = DeepCacheSDHelper(pipe=pipe)
-# helper.set_params(
-#     cache_interval=3,
-#     cache_branch_id=0,
-# )
-# helper.enable()
+helper = DeepCacheSDHelper(pipe=pipe)
+helper.set_params(
+    cache_interval=3,
+    cache_branch_id=0,
+)
+helper.enable()
 # token merging
 tomesd.apply_patch(pipe, ratio=0.2)  # light speedup
 
@@ -524,7 +524,7 @@ def create_image_from_prompt(prompt, width, height):
     block_width = width - (width % 64)
     block_height = height - (height % 64)
     prompt = shorten_too_long_text(prompt)
-    use_refiner = True
+    use_refiner = False
     # image = pipe(prompt=prompt).images[0]
     try:
         image = pipe(
