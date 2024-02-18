@@ -21,7 +21,9 @@ from diffusers import (
     UNet2DConditionModel,
     LCMScheduler,
     StableDiffusionInpaintPipeline,
-    StableDiffusionImg2ImgPipeline, StableDiffusionXLImg2ImgPipeline, ControlNetModel,
+    StableDiffusionImg2ImgPipeline,
+    StableDiffusionXLImg2ImgPipeline,
+    ControlNetModel,
     StableDiffusionXLControlNetPipeline,
 )
 from diffusers.utils import load_image
@@ -44,10 +46,14 @@ from stable_diffusion_server.utils import log_time
 
 try:
     # pipe = DiffusionPipeline.from_pretrained("models/SSD-1B", unet=unet, torch_dtype=torch.float16, variant="fp16")
-    pipe = DiffusionPipeline.from_pretrained("models/OpenDalle", torch_dtype=torch.float16, variant="fp16")
+    pipe = DiffusionPipeline.from_pretrained(
+        "models/OpenDalle", torch_dtype=torch.float16, variant="fp16"
+    )
 except OSError as e:
     # pipe = DiffusionPipeline.from_pretrained("segmind/SSD-1B", unet=unet, torch_dtype=torch.float16, variant="fp16")
-    pipe = DiffusionPipeline.from_pretrained("dataautogpt3/OpenDalle", torch_dtype=torch.float16, variant="fp16")
+    pipe = DiffusionPipeline.from_pretrained(
+        "dataautogpt3/OpenDalle", torch_dtype=torch.float16, variant="fp16"
+    )
 
 
 pipe.scheduler = LCMScheduler.from_config(pipe.scheduler.config)
@@ -59,8 +65,9 @@ all_components = pipe.components
 # all_components.pop("tokenizer")
 # all_components.pop("tokenizer_2")
 
-img2img = StableDiffusionXLImg2ImgPipeline(**all_components,
-    )
+img2img = StableDiffusionXLImg2ImgPipeline(
+    **all_components,
+)
 
 # pipe = DiffusionPipeline.from_pretrained(
 #     "models/stable-diffusion-xl-base-1.0",
@@ -79,9 +86,9 @@ refiner = DiffusionPipeline.from_pretrained(
     # unet=pipe.unet,
     text_encoder_2=pipe.text_encoder_2,
     vae=pipe.vae,
-    torch_dtype=torch.float16, # safer to use bfloat?
+    torch_dtype=torch.float16,  # safer to use bfloat?
     use_safetensors=True,
-    variant="fp16", #remember not to download the big model
+    variant="fp16",  # remember not to download the big model
 )
 refiner.watermark = None
 refiner.to("cuda")
@@ -90,7 +97,10 @@ refiner.to("cuda")
 # img2img = StableDiffusionImg2ImgPipeline(**pipe.components)
 # inpaintpipe = StableDiffusionInpaintPipeline(**pipe.components)
 inpaintpipe = StableDiffusionXLInpaintPipeline.from_pretrained(
-    "models/stable-diffusion-xl-base-1.0", torch_dtype=torch.float16, variant="fp16", use_safetensors=True,
+    "models/stable-diffusion-xl-base-1.0",
+    torch_dtype=torch.float16,
+    variant="fp16",
+    use_safetensors=True,
     scheduler=pipe.scheduler,
     text_encoder=pipe.text_encoder,
     text_encoder_2=pipe.text_encoder_2,
@@ -148,7 +158,6 @@ inpaint_refiner = StableDiffusionXLInpaintPipeline.from_pretrained(
     torch_dtype=torch.float16,
     use_safetensors=True,
     variant="fp16",
-
     tokenizer_2=refiner.tokenizer_2,
     tokenizer=refiner.tokenizer,
     scheduler=refiner.scheduler,
@@ -237,40 +246,52 @@ def make_image(prompt: str, save_path: str = ""):
 
 
 @app.get("/create_and_upload_image")
-def create_and_upload_image(prompt: str, width: int=1024, height:int=1024, save_path: str = ""):
+def create_and_upload_image(
+    prompt: str, width: int = 1024, height: int = 1024, save_path: str = ""
+):
     path_components = save_path.split("/")[0:-1]
     final_name = save_path.split("/")[-1]
     if not path_components:
         path_components = []
-    save_path = '/'.join(path_components) + quote_plus(final_name)
+    save_path = "/".join(path_components) + quote_plus(final_name)
     path = get_image_or_create_upload_to_cloud_storage(prompt, width, height, save_path)
     return JSONResponse({"path": path})
 
+
 @app.get("/inpaint_and_upload_image")
-def inpaint_and_upload_image(prompt: str, image_url:str, mask_url:str, save_path: str = ""):
+def inpaint_and_upload_image(
+    prompt: str, image_url: str, mask_url: str, save_path: str = ""
+):
     path_components = save_path.split("/")[0:-1]
     final_name = save_path.split("/")[-1]
     if not path_components:
         path_components = []
-    save_path = '/'.join(path_components) + quote_plus(final_name)
-    path = get_image_or_inpaint_upload_to_cloud_storage(prompt, image_url, mask_url, save_path)
+    save_path = "/".join(path_components) + quote_plus(final_name)
+    path = get_image_or_inpaint_upload_to_cloud_storage(
+        prompt, image_url, mask_url, save_path
+    )
     return JSONResponse({"path": path})
 
 
 @app.get("/style_transfer_and_upload_image")
-def style_transfer_and_upload_image(prompt: str, image_url:str, save_path: str = "", strength:float=0.6, canny=False):
+def style_transfer_and_upload_image(
+    prompt: str, image_url: str, save_path: str = "", strength: float = 0.6, canny=False
+):
     # todo also accept image bytes directly?
     path_components = save_path.split("/")[0:-1]
     final_name = save_path.split("/")[-1]
     if not path_components:
         path_components = []
-    save_path = '/'.join(path_components) + quote_plus(final_name)
-    path = get_image_or_style_transfer_upload_to_cloud_storage(prompt, image_url, save_path, strength, canny)
+    save_path = "/".join(path_components) + quote_plus(final_name)
+    path = get_image_or_style_transfer_upload_to_cloud_storage(
+        prompt, image_url, save_path, strength, canny
+    )
     return JSONResponse({"path": path})
 
 
-
-def get_image_or_style_transfer_upload_to_cloud_storage(prompt:str,image_url:str, save_path:str, strength=0.6, canny=False):
+def get_image_or_style_transfer_upload_to_cloud_storage(
+    prompt: str, image_url: str, save_path: str, strength=0.6, canny=False
+):
     prompt = shorten_too_long_text(prompt)
     save_path = shorten_too_long_text(save_path)
     # check exists - todo cache this
@@ -278,11 +299,14 @@ def get_image_or_style_transfer_upload_to_cloud_storage(prompt:str,image_url:str
         return f"https://{BUCKET_NAME}/{BUCKET_PATH}/{save_path}"
     bio = style_transfer_image_from_prompt(prompt, image_url, strength, canny)
     if bio is None:
-        return None # error thrown in pool
+        return None  # error thrown in pool
     link = upload_to_bucket(save_path, bio, is_bytesio=True)
     return link
 
-def get_image_or_create_upload_to_cloud_storage(prompt:str,width:int, height:int, save_path:str):
+
+def get_image_or_create_upload_to_cloud_storage(
+    prompt: str, width: int, height: int, save_path: str
+):
     prompt = shorten_too_long_text(prompt)
     save_path = shorten_too_long_text(save_path)
     # check exists - todo cache this
@@ -290,11 +314,14 @@ def get_image_or_create_upload_to_cloud_storage(prompt:str,width:int, height:int
         return f"https://{BUCKET_NAME}/{BUCKET_PATH}/{save_path}"
     bio = create_image_from_prompt(prompt, width, height)
     if bio is None:
-        return None # error thrown in pool
+        return None  # error thrown in pool
     link = upload_to_bucket(save_path, bio, is_bytesio=True)
     return link
 
-def get_image_or_inpaint_upload_to_cloud_storage(prompt:str, image_url:str, mask_url:str, save_path:str):
+
+def get_image_or_inpaint_upload_to_cloud_storage(
+    prompt: str, image_url: str, mask_url: str, save_path: str
+):
     prompt = shorten_too_long_text(prompt)
     save_path = shorten_too_long_text(save_path)
     # check exists - todo cache this
@@ -302,11 +329,14 @@ def get_image_or_inpaint_upload_to_cloud_storage(prompt:str, image_url:str, mask
         return f"https://{BUCKET_NAME}/{BUCKET_PATH}/{save_path}"
     bio = inpaint_image_from_prompt(prompt, image_url, mask_url)
     if bio is None:
-        return None # error thrown in pool
+        return None  # error thrown in pool
     link = upload_to_bucket(save_path, bio, is_bytesio=True)
     return link
 
-def style_transfer_image_from_prompt(prompt, image_url: str, strength=0.6, canny=False, input_pil=None):
+
+def style_transfer_image_from_prompt(
+    prompt, image_url: str, strength=0.6, canny=False, input_pil=None
+):
     prompt = shorten_too_long_text(prompt)
     # image = pipe(prompt=prompt).images[0]
 
@@ -314,7 +344,7 @@ def style_transfer_image_from_prompt(prompt, image_url: str, strength=0.6, canny
         input_pil = load_image(image_url).convert("RGB")
 
     canny_image = None
-    with log_time('canny'):
+    with log_time("canny"):
         if canny:
             in_image = np.array(input_pil)
             in_image = cv2.Canny(in_image, 100, 200)
@@ -327,10 +357,11 @@ def style_transfer_image_from_prompt(prompt, image_url: str, strength=0.6, canny
     try:
         if canny:
             # generate image
-            image=controlnetpipe(
-                prompt, controlnet_conditioning_scale=controlnet_conditioning_scale, image=canny_image,
+            image = controlnetpipe(
+                prompt,
+                controlnet_conditioning_scale=controlnet_conditioning_scale,
+                image=canny_image,
                 num_inference_steps=4,
-
             ).images[0]
         else:
             image = img2img(
@@ -338,18 +369,20 @@ def style_transfer_image_from_prompt(prompt, image_url: str, strength=0.6, canny
                 image=input_pil,
                 num_inference_steps=4,
                 strength=strength,
-                guidance_scale=7.6
-            ).images[0]  # normally uses 50 steps
+                guidance_scale=7.6,
+            ).images[
+                0
+            ]  # normally uses 50 steps
 
-    except Exception as e:
+    except Exception as _err:
         # try rm stopwords + half the prompt
         # todo try prompt permutations
         logger.info(f"trying to shorten prompt of length {len(prompt)}")
 
-        prompt = ' '.join((word for word in prompt if word not in stopwords))
+        prompt = " ".join((word for word in prompt if word not in stopwords))
         prompts = prompt.split()
 
-        prompt = ' '.join(prompts[:len(prompts) // 2])
+        prompt = " ".join(prompts[: len(prompts) // 2])
         logger.info(f"shortened prompt to: {len(prompt)}")
         image = None
         if prompt:
@@ -357,9 +390,10 @@ def style_transfer_image_from_prompt(prompt, image_url: str, strength=0.6, canny
                 if canny:
                     # generate image
                     image = controlnetpipe(
-                        prompt, controlnet_conditioning_scale=controlnet_conditioning_scale, image=canny_image,
-                num_inference_steps=4,
-
+                        prompt,
+                        controlnet_conditioning_scale=controlnet_conditioning_scale,
+                        image=canny_image,
+                        num_inference_steps=4,
                     ).images[0]
                 else:
                     image = img2img(
@@ -367,28 +401,31 @@ def style_transfer_image_from_prompt(prompt, image_url: str, strength=0.6, canny
                         image=input_pil,
                         num_inference_steps=4,
                         strength=strength,
-                        guidance_scale=7.6
-                    ).images[0]  # normally uses 50 steps
-            except Exception as e:
+                        guidance_scale=7.6,
+                    ).images[
+                        0
+                    ]  # normally uses 50 steps
+            except Exception as err:
                 # logger.info("trying to permute prompt")
                 # # try two swaps of the prompt/permutations
                 # prompt = prompt.split()
                 # prompt = ' '.join(permutations(prompt, 2).__next__())
                 logger.info(f"trying to shorten prompt of length {len(prompt)}")
 
-                prompt = ' '.join((word for word in prompt if word not in stopwords))
+                prompt = " ".join((word for word in prompt if word not in stopwords))
                 prompts = prompt.split()
 
-                prompt = ' '.join(prompts[:len(prompts) // 2])
+                prompt = " ".join(prompts[: len(prompts) // 2])
                 logger.info(f"shortened prompt to: {len(prompt)}")
 
                 try:
                     if canny:
                         # generate image
                         image = controlnetpipe(
-                            prompt, controlnet_conditioning_scale=controlnet_conditioning_scale, image=canny_image,
+                            prompt,
+                            controlnet_conditioning_scale=controlnet_conditioning_scale,
+                            image=canny_image,
                             num_inference_steps=4,
-
                         ).images[0]
                     else:
                         image = img2img(
@@ -396,12 +433,12 @@ def style_transfer_image_from_prompt(prompt, image_url: str, strength=0.6, canny
                             image=input_pil,
                             num_inference_steps=4,
                             strength=strength,
-                            guidance_scale=7.6
-                        ).images[0]  # normally uses 50 steps
-                except Exception as e:
+                            guidance_scale=7.6,
+                        ).images[0]
+                except Exception as inner_error:
                     # just error out
                     traceback.print_exc()
-                    raise e
+                    raise inner_error
                     # logger.info("restarting server to fix cuda issues (device side asserts)")
                     # todo fix device side asserts instead of restart to fix
                     # todo only restart the correct gunicorn
@@ -428,13 +465,15 @@ def style_transfer_image_from_prompt(prompt, image_url: str, strength=0.6, canny
     # try:
     #     # gc.collect()
 
-
     return image
+
+
 # multiprocessing.set_start_method('spawn', True)
 # processes_pool = Pool(1) # cant do too much at once or OOM errors happen
 # def create_image_from_prompt_sync(prompt):
 #     """have to call this sync to avoid OOM errors"""
 #     return processes_pool.apply_async(create_image_from_prompt, args=(prompt,), ).wait()
+
 
 def create_image_from_prompt(prompt, width, height):
     # round width and height down to multiple of 64
@@ -444,37 +483,45 @@ def create_image_from_prompt(prompt, width, height):
     use_refiner = True
     # image = pipe(prompt=prompt).images[0]
     try:
-        image = pipe(prompt=prompt,
-                negative_prompt=negative,
-                     width=block_width,
-                     height=block_height,
-                     # denoising_end=high_noise_frac,
-                     output_type='latent' if use_refiner else "pil",
-                     # height=512,
-                     # width=512,
-                     num_inference_steps=4).images[0]  # normally uses 50 steps
+        image = pipe(
+            prompt=prompt,
+            negative_prompt=negative,
+            width=block_width,
+            height=block_height,
+            # denoising_end=high_noise_frac,
+            output_type="latent" if use_refiner else "pil",
+            # height=512,
+            # width=512,
+            num_inference_steps=4,
+        ).images[
+            0
+        ]  # normally uses 50 steps
     except Exception as e:
         # try rm stopwords + half the prompt
         # todo try prompt permutations
         logger.info(f"trying to shorten prompt of length {len(prompt)}")
 
-        prompt = ' '.join((word for word in prompt if word not in stopwords))
+        prompt = " ".join((word for word in prompt if word not in stopwords))
         prompts = prompt.split()
 
-        prompt = ' '.join(prompts[:len(prompts) // 2])
+        prompt = " ".join(prompts[: len(prompts) // 2])
         logger.info(f"shortened prompt to: {len(prompt)}")
         image = None
         if prompt:
             try:
-                image = pipe(prompt=prompt,
-                        negative_prompt=negative,
-                             width=block_width,
-                             height=block_height,
-                             # denoising_end=high_noise_frac,
-                             output_type='latent' if use_refiner else "pil",
-                             # height=512,
-                             # width=512,
-                             num_inference_steps=4).images[0]  # normally uses 50 steps
+                image = pipe(
+                    prompt=prompt,
+                    negative_prompt=negative,
+                    width=block_width,
+                    height=block_height,
+                    # denoising_end=high_noise_frac,
+                    output_type="latent" if use_refiner else "pil",
+                    # height=512,
+                    # width=512,
+                    num_inference_steps=4,
+                ).images[
+                    0
+                ]  # normally uses 50 steps
             except Exception as e:
                 # logger.info("trying to permute prompt")
                 # # try two swaps of the prompt/permutations
@@ -482,22 +529,28 @@ def create_image_from_prompt(prompt, width, height):
                 # prompt = ' '.join(permutations(prompt, 2).__next__())
                 logger.info(f"trying to shorten prompt of length {len(prompt)}")
 
-                prompt = ' '.join((word for word in prompt if word not in stopwords))
+                prompt = " ".join((word for word in prompt if word not in stopwords))
                 prompts = prompt.split()
 
-                prompt = ' '.join(prompts[:len(prompts) // 2])
+                prompt = " ".join(prompts[: len(prompts) // 2])
                 logger.info(f"shortened prompt to: {len(prompt)}")
 
                 try:
-                    image = pipe(prompt=prompt,
-                            negative_prompt=negative,
-                                 width=block_width,
-                                 height=block_height,
-                                 # denoising_end=high_noise_frac,
-                                 output_type='latent' if use_refiner else "pil", # dont need latent yet - we refine the image at full res
-                                 # height=512,
-                                 # width=512,
-                                 num_inference_steps=4).images[0]  # normally uses 50 steps
+                    image = pipe(
+                        prompt=prompt,
+                        negative_prompt=negative,
+                        width=block_width,
+                        height=block_height,
+                        # denoising_end=high_noise_frac,
+                        output_type="latent"
+                        if use_refiner
+                        else "pil",  # dont need latent yet - we refine the image at full res
+                        # height=512,
+                        # width=512,
+                        num_inference_steps=4,
+                    ).images[
+                        0
+                    ]  # normally uses 50 steps
                 except Exception as e:
                     # just error out
                     traceback.print_exc()
@@ -510,7 +563,7 @@ def create_image_from_prompt(prompt, width, height):
                     # os.system("kill -1 `pgrep gunicorn`")
     # todo refine
     if image != None and use_refiner:
-        #todo depend on q length?
+        # todo depend on q length?
         image = refiner(
             prompt=prompt,
             num_inference_steps=8,
@@ -524,7 +577,12 @@ def create_image_from_prompt(prompt, width, height):
         # resize to original size width/height
         # find aspect ratio to scale up to that covers the original img input width/height
         scale_up_ratio = max(width / block_width, height / block_height)
-        image = image.resize((math.ceil(block_width * scale_up_ratio), math.ceil(height * scale_up_ratio)))
+        image = image.resize(
+            (
+                math.ceil(block_width * scale_up_ratio),
+                math.ceil(height * scale_up_ratio),
+            )
+        )
         # crop image to original size
         image = image.crop((0, 0, width, height))
     # try:
@@ -562,12 +620,13 @@ def create_image_from_prompt(prompt, width, height):
         f.write(f"{current_time}")
     return bio
 
+
 def inpaint_image_from_prompt(prompt, image_url: str, mask_url: str):
     prompt = shorten_too_long_text(prompt)
     # image = pipe(prompt=prompt).images[0]
 
     init_image = load_image(image_url).convert("RGB")
-    mask_image = load_image(mask_url).convert("RGB") # why rgb for a 1 channel mask?
+    mask_image = load_image(mask_url).convert("RGB")  # why rgb for a 1 channel mask?
     # num_inference_steps = 75 # causes weird error ValueError: The combination of `original_steps x strength`: 50 x 1.0 is smaller than `num_inference_steps`: 75. Make sure to either reduce `num_inference_steps` to a value smaller than 50 or increase `strength` to a value higher than 1.5.
     num_inference_steps = 40
     high_noise_frac = 0.7
@@ -580,16 +639,18 @@ def inpaint_image_from_prompt(prompt, image_url: str, mask_url: str):
             num_inference_steps=num_inference_steps,
             denoising_start=high_noise_frac,
             output_type="latent",
-        ).images[0]  # normally uses 50 steps
+        ).images[
+            0
+        ]  # normally uses 50 steps
     except Exception as e:
         # try rm stopwords + half the prompt
         # todo try prompt permutations
         logger.info(f"trying to shorten prompt of length {len(prompt)}")
 
-        prompt = ' '.join((word for word in prompt if word not in stopwords))
+        prompt = " ".join((word for word in prompt if word not in stopwords))
         prompts = prompt.split()
 
-        prompt = ' '.join(prompts[:len(prompts) // 2])
+        prompt = " ".join(prompts[: len(prompts) // 2])
         logger.info(f"shortened prompt to: {len(prompt)}")
         image = None
         if prompt:
@@ -601,7 +662,9 @@ def inpaint_image_from_prompt(prompt, image_url: str, mask_url: str):
                     num_inference_steps=num_inference_steps,
                     denoising_start=high_noise_frac,
                     output_type="latent",
-                ).images[0]  # normally uses 50 steps
+                ).images[
+                    0
+                ]  # normally uses 50 steps
             except Exception as e:
                 # logger.info("trying to permute prompt")
                 # # try two swaps of the prompt/permutations
@@ -609,21 +672,23 @@ def inpaint_image_from_prompt(prompt, image_url: str, mask_url: str):
                 # prompt = ' '.join(permutations(prompt, 2).__next__())
                 logger.info(f"trying to shorten prompt of length {len(prompt)}")
 
-                prompt = ' '.join((word for word in prompt if word not in stopwords))
+                prompt = " ".join((word for word in prompt if word not in stopwords))
                 prompts = prompt.split()
 
-                prompt = ' '.join(prompts[:len(prompts) // 2])
+                prompt = " ".join(prompts[: len(prompts) // 2])
                 logger.info(f"shortened prompt to: {len(prompt)}")
 
                 try:
                     image = inpaintpipe(
-                            prompt=prompt,
-                            image=init_image,
-                            mask_image=mask_image,
-                            num_inference_steps=num_inference_steps,
-                            denoising_start=high_noise_frac,
-                            output_type="latent",
-                        ).images[0]  # normally uses 50 steps
+                        prompt=prompt,
+                        image=init_image,
+                        mask_image=mask_image,
+                        num_inference_steps=num_inference_steps,
+                        denoising_start=high_noise_frac,
+                        output_type="latent",
+                    ).images[
+                        0
+                    ]  # normally uses 50 steps
                 except Exception as e:
                     # just error out
                     traceback.print_exc()
@@ -641,7 +706,6 @@ def inpaint_image_from_prompt(prompt, image_url: str, mask_url: str):
             mask_image=mask_image,
             num_inference_steps=num_inference_steps,
             denoising_start=high_noise_frac,
-
         ).images[0]
     # try:
     #     # gc.collect()
@@ -679,15 +743,15 @@ def inpaint_image_from_prompt(prompt, image_url: str, mask_url: str):
     return bio
 
 
-
 def shorten_too_long_text(prompt):
     if len(prompt) > 200:
         # remove stopwords
-        prompt = prompt.split() # todo also split hyphens
-        prompt = ' '.join((word for word in prompt if word not in stopwords))
+        prompt = prompt.split()  # todo also split hyphens
+        prompt = " ".join((word for word in prompt if word not in stopwords))
         if len(prompt) > 200:
             prompt = prompt[:200]
     return prompt
+
 
 # image = pipe(prompt=prompt).images[0]
 #
