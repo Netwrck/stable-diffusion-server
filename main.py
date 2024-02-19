@@ -42,38 +42,38 @@ from env import BUCKET_PATH, BUCKET_NAME
 from stable_diffusion_server.bucket_api import check_if_blob_exists, upload_to_bucket
 from stable_diffusion_server.utils import log_time
 
-try:
-    unet = UNet2DConditionModel.from_pretrained(
-        "models/lcm-ssd-1b", torch_dtype=torch.float16, variant="fp16"
-    )
-except OSError as e:
-    unet = UNet2DConditionModel.from_pretrained(
-        "latent-consistency/lcm-ssd-1b", torch_dtype=torch.float16, variant="fp16"
-    )
+# try:
+#     unet = UNet2DConditionModel.from_pretrained(
+#         "models/lcm-ssd-1b", torch_dtype=torch.float16, variant="fp16"
+#     )
+# except OSError as e:
+#     unet = UNet2DConditionModel.from_pretrained(
+#         "latent-consistency/lcm-ssd-1b", torch_dtype=torch.float16, variant="fp16"
+#     )
 
 try:
-    pipe = DiffusionPipeline.from_pretrained(
-        "models/SSD-1B", unet=unet, torch_dtype=torch.float16, variant="fp16"
-    )
     # pipe = DiffusionPipeline.from_pretrained(
-    #     "models/ProteusV0.2", torch_dtype=torch.float16, variant="fp16"
+    #     "models/SSD-1B", unet=unet, torch_dtype=torch.float16, variant="fp16"
     # )
+    pipe = DiffusionPipeline.from_pretrained(
+        "models/ProteusV0.2", torch_dtype=torch.float16, variant="fp16"
+    )
 except OSError as e:
-    pipe = DiffusionPipeline.from_pretrained(
-        "segmind/SSD-1B", unet=unet, torch_dtype=torch.float16, variant="fp16"
-    )
     # pipe = DiffusionPipeline.from_pretrained(
-    #     "dataautogpt3/ProteusV0.2", torch_dtype=torch.float16, variant="fp16"
+    #     "segmind/SSD-1B", unet=unet, torch_dtype=torch.float16, variant="fp16"
     # )
+    pipe = DiffusionPipeline.from_pretrained(
+        "dataautogpt3/ProteusV0.2", torch_dtype=torch.float16, variant="fp16"
+    )
 
 old_scheduler = pipe.scheduler
 pipe.scheduler = LCMScheduler.from_config(pipe.scheduler.config)
 
-# if os.path.exists("models/lcm-lora-sdxl"):
-#     pipe.load_lora_weights("models/lcm-lora-sdxl", adapter_name="lcm")
-# else:
-#     pipe.load_lora_weights("latent-consistency/lcm-lora-sdxl", adapter_name="lcm")
-# pipe.set_adapters(["lcm"], adapter_weights=[1.0])
+if os.path.exists("models/lcm-lora-sdxl"):
+    pipe.load_lora_weights("models/lcm-lora-sdxl", adapter_name="lcm")
+else:
+    pipe.load_lora_weights("latent-consistency/lcm-lora-sdxl", adapter_name="lcm")
+pipe.set_adapters(["lcm"], adapter_weights=[1.0])
 
 all_components = pipe.components
 # all_components.pop("scheduler")
@@ -113,8 +113,8 @@ pipe.to("cuda")
 refiner = DiffusionPipeline.from_pretrained(
     # "stabilityai/stable-diffusion-xl-refiner-1.0",
     # "dataautogpt3/OpenDalle",
-    # "models/ProteusV0.2",
-    "models/SSD-1B",
+    "models/ProteusV0.2",
+    # "models/SSD-1B",
     unet=pipe.unet,
     text_encoder_2=pipe.text_encoder_2,
     vae=pipe.vae,
@@ -233,17 +233,19 @@ inpaint_refiner.to("cuda")
 inpaint_refiner.watermark = None
 # inpaint_refiner.register_to_config(requires_aesthetics_score=False)
 
-n_steps = 4
+n_steps = 5
 n_refiner_steps = 10
 high_noise_frac = 0.8
-use_refiner = True
+use_refiner = False
 
 # CFG Scale: Use a CFG scale of 8 to 7
 # pipe.scheduler = KDPM2AncestralDiscreteScheduler.from_config(pipe.scheduler.config)
 
-refiner.scheduler = KDPM2AncestralDiscreteScheduler.from_config(
-    refiner.scheduler.config
-)
+# errors a bit 
+# refiner.scheduler = KDPM2AncestralDiscreteScheduler.from_config(
+#     refiner.scheduler.config
+# )
+
 # Sampler: DPM++ 2M SDE
 # pipe.sa
 # Scheduler: Karras
@@ -286,6 +288,7 @@ stopwords = nltk.corpus.stopwords.words("english")
 negative = "3 or 4 ears, never BUT ONE EAR, blurry, unclear, bad anatomy, extra limbs, poorly drawn face, poorly drawn hands, missing fingers, mangled teeth, weird teeth, poorly drawn eyes, blurry eyes, tan skin, oversaturated, teeth, poorly drawn, ugly, closed eyes, 3D, weird neck, duplicate, morbid, mutilated, out of frame, extra fingers, mutated hands, poorly drawn hands, poorly drawn face, mutation, deformed, blurry, bad anatomy, bad proportions, extra limbs, cloned face, disfigured, extra limbs, gross proportions, malformed limbs, missing arms, missing legs, extra arms, extra legs, mutated hands, fused fingers, too many fingers, text, logo, wordmark, writing, signature, blurry, bad anatomy, extra limbs, poorly drawn face, poorly drawn hands, missing fingers, Removed From Image Removed From Image flowers, Deformed, blurry, bad anatomy, disfigured, poorly drawn face, mutation, mutated, extra limb, ugly, poorly drawn hands, missing limb, blurry, floating limbs, disconnected limbs, malformed hands, blur, long body, ((((mutated hands and fingers)))), cartoon, 3d ((disfigured)), ((bad art)), ((deformed)), ((extra limbs)), ((dose up)), ((b&w)), Wierd colors, blurry, (((duplicate))), ((morbid)), ((mutilated)), [out of frame], extra fingers, mutated hands, ((poorly drawn hands)), (poorly drawn face)), (((mutation))), (((deformed))), ((ugly)), blurry, ((bad anatomy)), (((bad proportions))), (extra limbs)), cloned face, (((disfigured))), out of frame ugly, extra limbs (bad anatomy), gross proportions (malformed limbs), ((missing arms)), ((missing legs)), (((extra arms))), (((extra legs))), mutated hands, (fused fingers), (too many fingers), (((long neck))), Photoshop, videogame, ugly, tiling, poorly drawn hands, poorly drawn feet, poorly drawn face, out of frame, mutation, mutated, extra limbs, extra legs, extra arms, disfigured deformed cross-eye, ((body out of )), blurry, bad art, bad anatomy, 3d render, two faces, duplicate, coppy, multi, two, disfigured, kitsch, ugly, oversaturated, grain, low-res, Deformed, blurry, bad anatomy, disfigured, poorly drawn face, mutation, mutated, extra limb, ugly, poorly drawn hands, missing limb, blurry, floating limbs, disconnected limbs, malformed hands, blur, out of focus, long neck, long body, ugly, disgusting, poorly drawn, childish, mutilated, mangled, old ugly, tiling, poorly drawn hands, poorly drawn feet, poorly drawn face, out of frame, extra limbs, disfigured, deformed, body out of frame, blurry, bad anatomy, blurred, watermark, grainy, signature, cut off, draf, blurry, bad anatomy, extra limbs, poorly drawn face, poorly drawn hands, missing fingers"
 negative2 = "ugly, deformed, noisy, blurry, distorted, out of focus, bad anatomy, extra limbs, poorly drawn face, poorly drawn hands, missing fingers"
 extra_pipe_args = {
+    "guidance_scale": 1,
     "negative_prompt": negative,
     "negative_prompt2": negative2,
 }
