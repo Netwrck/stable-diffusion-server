@@ -441,7 +441,7 @@ def style_transfer_image_from_prompt(
                 image=input_pil,
                 num_inference_steps=n_steps,
                 strength=strength,
-                **extra_refiner_pipe_args,
+                **extra_pipe_args,
             ).images[0]
     except Exception as err:
         # try rm stopwords + half the prompt
@@ -464,7 +464,7 @@ def style_transfer_image_from_prompt(
                         controlnet_conditioning_scale=controlnet_conditioning_scale,
                         image=canny_image,
                         num_inference_steps=n_steps,
-                        **extra_refiner_pipe_args,
+                        **extra_pipe_args,
                     ).images[0]
                 else:
                     image = img2img(
@@ -472,7 +472,7 @@ def style_transfer_image_from_prompt(
                         image=input_pil,
                         num_inference_steps=n_steps,
                         strength=strength,
-                        **extra_refiner_pipe_args,
+                        **extra_pipe_args,
                     ).images[0]
             except Exception as err:
                 # logger.info("trying to permute prompt")
@@ -495,7 +495,7 @@ def style_transfer_image_from_prompt(
                             controlnet_conditioning_scale=controlnet_conditioning_scale,
                             image=canny_image,
                             num_inference_steps=n_steps,
-                            **extra_refiner_pipe_args,
+                            **extra_pipe_args,
                         ).images[0]
                     else:
                         image = img2img(
@@ -503,7 +503,7 @@ def style_transfer_image_from_prompt(
                             image=input_pil,
                             num_inference_steps=n_steps,
                             strength=strength,
-                            **extra_refiner_pipe_args,
+                            **extra_pipe_args,
                         ).images[0]
                 except Exception as inner_error:
                     # just error out
