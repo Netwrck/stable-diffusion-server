@@ -603,6 +603,7 @@ def create_image_from_prompt(prompt, width, height):
                     # height=512,
                     # width=512,
                     num_inference_steps=n_steps,
+                    **extra_pipe_args,
                 ).images[0]
             except Exception as e:
                 # logger.info("trying to permute prompt")
