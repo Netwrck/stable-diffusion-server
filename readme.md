@@ -38,6 +38,17 @@ python -c "import nltk; nltk.download('stopwords')"
 #### Edit settings in env.py
 #### download your Google cloud credentials to secrets/google-credentials.json
 Images generated will be stored in your bucket
+#### Run the gradio UI
+
+```
+python gradio_ui.py
+```
+Go to 
+http://127.0.0.1:7860
+
+
+![gradio demo](gradioimg.png)
+
 #### Run the server
 
 ```bash

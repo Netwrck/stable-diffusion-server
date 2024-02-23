@@ -152,13 +152,15 @@ inpaintpipe = StableDiffusionXLInpaintPipeline.from_pretrained(
 
 # controlnet_conditioning_scale = 0.5  # recommended for good generalization
 # controlnet = ControlNetModel.from_pretrained(
-#     "diffusers/controlnet-canny-sdxl-1.0", torch_dtype=torch.float16
+#     "diffusers/controlnet-canny-sdxl-1.0", torch_dtype=torch.float16, variant="fp16",
 # )
 # controlnet.to("cuda")
 # controlnetpipe = StableDiffusionXLControlNetPipeline.from_pretrained(
 #     "stabilityai/stable-diffusion-xl-base-1.0", controlnet=controlnet, **pipe.components
 # )
 # controlnetpipe.to("cuda")
+
+
 # # switch out to save gpu mem
 # del inpaintpipe.vae
 # del inpaintpipe.text_encoder_2
@@ -191,7 +193,8 @@ inpaintpipe.watermark = None
 
 # todo do we need this?
 inpaint_refiner = StableDiffusionXLInpaintPipeline.from_pretrained(
-    "stabilityai/stable-diffusion-xl-refiner-1.0",
+    # "stabilityai/stable-diffusion-xl-refiner-1.0",
+    "models/ProteusV0.2",
     text_encoder_2=inpaintpipe.text_encoder_2,
     vae=inpaintpipe.vae,
     torch_dtype=torch.float16,
@@ -238,6 +241,26 @@ n_steps = 5
 n_refiner_steps = 10
 high_noise_frac = 0.8
 use_refiner = False
+
+
+# efficiency 
+
+# inpaintpipe.enable_model_cpu_offload()
+# inpaint_refiner.enable_model_cpu_offload()
+# pipe.enable_model_cpu_offload()
+# refiner.enable_model_cpu_offload()
+# img2img.enable_model_cpu_offload()
+
+
+# pipe.enable_xformers_memory_efficient_attention()
+
+# attn
+# inpaintpipe.enable_xformers_memory_efficient_attention()
+# inpaint_refiner.enable_xformers_memory_efficient_attention()
+# pipe.enable_xformers_memory_efficient_attention()
+# refiner.enable_xformers_memory_efficient_attention()
+# img2img.enable_xformers_memory_efficient_attention()
+
 
 # CFG Scale: Use a CFG scale of 8 to 7
 # pipe.scheduler = KDPM2AncestralDiscreteScheduler.from_config(pipe.scheduler.config)
@@ -604,6 +627,7 @@ def create_image_from_prompt(prompt, width, height):
                     # height=512,
                     # width=512,
                     num_inference_steps=n_steps,
+                    **extra_pipe_args,
                 ).images[0]
             except Exception as e:
                 # logger.info("trying to permute prompt")
