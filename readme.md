@@ -2,6 +2,7 @@ simple stable diffusion server that saves images to cloud storage - returns link
 
 ## Shameless Plug from Maintainers
 [![netwrck logo](https://static.netwrck.com/static/img/netwrck-logo-colord256.png)](https://netwrck.com)
+[![eBank logo](https://static.netwrck.com/static/img/ebank-logo-removebg-full387.webp)](https://ebank.nz)
 
 Checkout [Voiced AI Characters to chat with](https://netwrck.com) at [netwrck.com](https://netwrck.com)
 
