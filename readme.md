@@ -2,6 +2,7 @@ simple stable diffusion server that saves images to cloud storage - returns link
 
 ## Shameless Plug from Maintainers
 [![netwrck logo](https://static.netwrck.com/static/img/netwrck-logo-colord256.png)](https://netwrck.com)
+[![eBank logo](https://static.netwrck.com/static/img/ebank-logo-removebg-full387.png)](https://ebank.nz)
 
 Checkout [Voiced AI Characters to chat with](https://netwrck.com) at [netwrck.com](https://netwrck.com)
 
@@ -38,6 +39,17 @@ python -c "import nltk; nltk.download('stopwords')"
 #### Edit settings in env.py
 #### download your Google cloud credentials to secrets/google-credentials.json
 Images generated will be stored in your bucket
+#### Run the gradio UI
+
+```
+python gradio_ui.py
+```
+Go to 
+http://127.0.0.1:7860
+
+
+![gradio demo](gradioimg.png)
+
 #### Run the server
 
 ```bash

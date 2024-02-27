@@ -135,7 +135,8 @@ refiner.to("cuda")
 # {'scheduler', 'text_encoder', 'text_encoder_2', 'tokenizer', 'tokenizer_2', 'unet', 'vae'} can be passed in from existing model
 # inpaintpipe = StableDiffusionInpaintPipeline(**pipe.components)
 inpaintpipe = StableDiffusionXLInpaintPipeline.from_pretrained(
-    "models/stable-diffusion-xl-base-1.0",
+    # "models/stable-diffusion-xl-base-1.0",
+    "models/ProteusV0.2",
     torch_dtype=torch.float16,
     variant="fp16",
     use_safetensors=True,
@@ -149,16 +150,16 @@ inpaintpipe = StableDiffusionXLInpaintPipeline.from_pretrained(
     # load_connected_pipeline=
 )
 
-controlnet_conditioning_scale = 0.5  # recommended for good generalization
+# controlnet_conditioning_scale = 0.5  # recommended for good generalization
 # controlnet = ControlNetModel.from_pretrained(
 #     "diffusers/controlnet-canny-sdxl-1.0", torch_dtype=torch.float16, variant="fp16",
 # )
 # controlnet.to("cuda")
 # controlnetpipe = StableDiffusionXLControlNetPipeline.from_pretrained(
-#     "models/stable-diffusion-xl-base-1.0", 
-#     controlnet=controlnet, **pipe.components
+#     "stabilityai/stable-diffusion-xl-base-1.0", controlnet=controlnet, **pipe.components
 # )
 # controlnetpipe.to("cuda")
+
 
 # # switch out to save gpu mem
 # del inpaintpipe.vae
