@@ -429,18 +429,26 @@ def get_image_or_inpaint_upload_to_cloud_storage(
     return link
 
 
+def is_defined(thing):
+    # if isinstance(thing, pd.DataFrame):
+    #     return not thing.empty
+    if isinstance(thing, Image.Image):
+        return True
+    else:
+        return thing is not None
+    
 def style_transfer_image_from_prompt(
     prompt, image_url: str, strength=0.6, canny=False, input_pil=None
 ):
     prompt = shorten_too_long_text(prompt)
     # image = pipe(guidance_scale=7,prompt=prompt).images[0]
 
-    if not input_pil:
+    if not is_defined(input_pil):
         input_pil = load_image(image_url).convert("RGB")
 
     canny_image = None
-    with log_time("canny"):
-        if canny:
+    if canny:
+        with log_time("canny"):
             in_image = np.array(input_pil)
             in_image = cv2.Canny(in_image, 100, 200)
             in_image = in_image[:, :, None]
