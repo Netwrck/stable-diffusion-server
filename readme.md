@@ -36,9 +36,6 @@ git clone https://huggingface.co/latent-consistency/lcm-ssd-1b
 python -c "import nltk; nltk.download('stopwords')"
 ```
 
-#### Edit settings in env.py
-#### download your Google cloud credentials to secrets/google-credentials.json
-Images generated will be stored in your bucket
 #### Run the gradio UI
 
 ```
@@ -49,6 +46,11 @@ http://127.0.0.1:7860
 
 
 ![gradio demo](gradioimg.png)
+
+## Server setup
+#### Edit settings
+#### download your Google cloud credentials to secrets/google-credentials.json
+Images generated will be stored in your bucket
 
 #### Run the server
 
