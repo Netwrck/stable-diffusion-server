@@ -55,12 +55,12 @@ def get_text(prompt):
         return generated_text
 
 
-@bot.tree.command(name="imagegen", description="Generate image from a prompt")
+@bot.tree.command(name="art", description="Generate image from a prompt")
 async def imagegen(interaction: discord.Interaction, prompt: str):
     await interaction.response.defer()
     urlencoded = quote(prompt)
     await interaction.followup.send(
-        f"For similar results checkout https://ebank.nz/aiartgenerator?category={urlencoded}"
+        f"For similar results checkout https://aiart-generator.art/?c={urlencoded}"
     )
 
     # convert --ar 16:9 and to width/height
@@ -72,6 +72,18 @@ async def imagegen(interaction: discord.Interaction, prompt: str):
     elif "--ar 9:16" in prompt or "9:16" in prompt:
         height = 1920
         width = 1080
+    elif "--ar 3:4" in prompt or "3:4" in prompt:
+        width = 864
+        height = 1152
+    elif "4:3" in prompt:
+        width = 1152
+        height = 864
+    elif "2:3" in prompt:
+        width = 768
+        height = 1152
+    elif "3:2" in prompt:
+        width = 1152
+        height = 768
 
     image = get_image(prompt, "", width, height)
     with tempfile.NamedTemporaryFile(dir="/dev/shm", suffix=".webp") as temp:
