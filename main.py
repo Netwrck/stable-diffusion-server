@@ -75,6 +75,10 @@ else:
     pipe.load_lora_weights("latent-consistency/lcm-lora-sdxl", adapter_name="lcm")
 pipe.set_adapters(["lcm"], adapter_weights=[1.0])
 
+# mem efficient
+pipe.enable_attention_slicing()
+pipe.enable_vae_slicing()
+
 all_components = pipe.components
 # all_components.pop("scheduler")
 # all_components.pop("text_encoder")
@@ -592,11 +596,12 @@ def style_transfer_image_from_prompt(
 #     return processes_pool.apply_async(create_image_from_prompt, args=(prompt,), ).wait()
 
 
-def create_image_from_prompt(prompt, width, height):
+def create_image_from_prompt(prompt, width, height, n_steps=5, extra_args={}):
     # round width and height down to multiple of 64
     block_width = width - (width % 64)
     block_height = height - (height % 64)
     prompt = shorten_too_long_text(prompt)
+    extra_total_args = {**extra_pipe_args, **extra_args}
     # image = pipe(guidance_scale=7,prompt=prompt).images[0]
     try:
         image = pipe(
@@ -609,7 +614,7 @@ def create_image_from_prompt(prompt, width, height):
             # height=512,
             # width=512,
             num_inference_steps=n_steps,
-            **extra_pipe_args,
+            **extra_total_args,
         ).images[0]
     except Exception as e:
         # try rm stopwords + half the prompt
@@ -635,7 +640,7 @@ def create_image_from_prompt(prompt, width, height):
                     # height=512,
                     # width=512,
                     num_inference_steps=n_steps,
-                    **extra_pipe_args,
+                    **extra_total_args,
                 ).images[0]
             except Exception as e:
                 # logger.info("trying to permute prompt")
