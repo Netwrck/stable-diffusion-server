@@ -55,8 +55,15 @@ def get_text(prompt):
         return generated_text
 
 
-@bot.tree.command(name="art", description="Generate image from a prompt")
+@bot.tree.command(name="imagegen", description="Generate image from a prompt")
 async def imagegen(interaction: discord.Interaction, prompt: str):
+    return await art_internal(interaction, prompt)
+
+@bot.tree.command(name="art", description="Generate image from a prompt")
+async def art(interaction: discord.Interaction, prompt: str):
+    return await art_internal(interaction, prompt)
+
+async def art_internal(interaction: discord.Interaction, prompt: str):
     await interaction.response.defer()
     urlencoded = quote(prompt)
     await interaction.followup.send(
