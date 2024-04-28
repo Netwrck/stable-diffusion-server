@@ -75,6 +75,10 @@ else:
     pipe.load_lora_weights("latent-consistency/lcm-lora-sdxl", adapter_name="lcm")
 pipe.set_adapters(["lcm"], adapter_weights=[1.0])
 
+# mem efficient
+pipe.enable_attention_slicing()
+pipe.enable_vae_slicing()
+
 all_components = pipe.components
 # all_components.pop("scheduler")
 # all_components.pop("text_encoder")
@@ -136,8 +140,8 @@ refiner.to("cuda")
 # inpaintpipe = StableDiffusionInpaintPipeline(**pipe.components)
 print('cnet')
 inpaintpipe = StableDiffusionXLInpaintPipeline.from_pretrained(
- #   "models/stable-diffusion-xl-base-1.0",
-    'models/ProteusV0.2',
+    # "models/stable-diffusion-xl-base-1.0",
+    "models/ProteusV0.2",
     torch_dtype=torch.float16,
     variant="fp16",
     use_safetensors=True,
@@ -150,16 +154,16 @@ inpaintpipe = StableDiffusionXLInpaintPipeline.from_pretrained(
     vae=pipe.vae,
     # load_connected_pipeline=
 )
-#controlnet_conditioning_scale = 0.5  # recommended for good generalization
-#controlnet = ControlNetModel.from_pretrained(
-#    "diffusers/controlnet-canny-sdxl-1.0", torch_dtype=torch.float16
-#)
-#controlnet.to("cuda")
-#controlnetpipe = StableDiffusionXLControlNetPipeline.from_pretrained(
-#    "models/stable-diffusion-xl-base-1.0", controlnet=controlnet, **pipe.components
-#)
-#controlnetpipe.to("cuda")
-#print('donelcontrols')
+# controlnet = ControlNetModel.from_pretrained(
+#     "diffusers/controlnet-canny-sdxl-1.0", torch_dtype=torch.float16, variant="fp16",
+# )
+# controlnet.to("cuda")
+# controlnetpipe = StableDiffusionXLControlNetPipeline.from_pretrained(
+#     "stabilityai/stable-diffusion-xl-base-1.0", controlnet=controlnet, **pipe.components
+# )
+# controlnetpipe.to("cuda")
+
+
 # # switch out to save gpu mem
 # del inpaintpipe.vae
 # del inpaintpipe.text_encoder_2
@@ -192,7 +196,8 @@ inpaintpipe.watermark = None
 
 # todo do we need this?
 inpaint_refiner = StableDiffusionXLInpaintPipeline.from_pretrained(
-    "stabilityai/stable-diffusion-xl-refiner-1.0",
+    # "stabilityai/stable-diffusion-xl-refiner-1.0",
+    "models/ProteusV0.2",
     text_encoder_2=inpaintpipe.text_encoder_2,
     vae=inpaintpipe.vae,
     torch_dtype=torch.float16,
@@ -239,6 +244,26 @@ n_steps = 5
 n_refiner_steps = 10
 high_noise_frac = 0.8
 use_refiner = False
+
+
+# efficiency 
+
+# inpaintpipe.enable_model_cpu_offload()
+# inpaint_refiner.enable_model_cpu_offload()
+# pipe.enable_model_cpu_offload()
+# refiner.enable_model_cpu_offload()
+# img2img.enable_model_cpu_offload()
+
+
+# pipe.enable_xformers_memory_efficient_attention()
+
+# attn
+# inpaintpipe.enable_xformers_memory_efficient_attention()
+# inpaint_refiner.enable_xformers_memory_efficient_attention()
+# pipe.enable_xformers_memory_efficient_attention()
+# refiner.enable_xformers_memory_efficient_attention()
+# img2img.enable_xformers_memory_efficient_attention()
+
 
 # CFG Scale: Use a CFG scale of 8 to 7
 # pipe.scheduler = KDPM2AncestralDiscreteScheduler.from_config(pipe.scheduler.config)
@@ -413,18 +438,26 @@ def get_image_or_inpaint_upload_to_cloud_storage(
     return link
 
 
+def is_defined(thing):
+    # if isinstance(thing, pd.DataFrame):
+    #     return not thing.empty
+    if isinstance(thing, Image.Image):
+        return True
+    else:
+        return thing is not None
+    
 def style_transfer_image_from_prompt(
     prompt, image_url: str, strength=0.6, canny=False, input_pil=None
 ):
     prompt = shorten_too_long_text(prompt)
     # image = pipe(guidance_scale=7,prompt=prompt).images[0]
 
-    if not input_pil:
+    if not is_defined(input_pil):
         input_pil = load_image(image_url).convert("RGB")
 
     canny_image = None
-    with log_time("canny"):
-        if canny:
+    if canny:
+        with log_time("canny"):
             in_image = np.array(input_pil)
             in_image = cv2.Canny(in_image, 100, 200)
             in_image = in_image[:, :, None]
@@ -449,7 +482,7 @@ def style_transfer_image_from_prompt(
                 image=input_pil,
                 num_inference_steps=n_steps,
                 strength=strength,
-                **extra_refiner_pipe_args,
+                **extra_pipe_args,
             ).images[0]
     except Exception as err:
         # try rm stopwords + half the prompt
@@ -472,7 +505,7 @@ def style_transfer_image_from_prompt(
                         controlnet_conditioning_scale=controlnet_conditioning_scale,
                         image=canny_image,
                         num_inference_steps=n_steps,
-                        **extra_refiner_pipe_args,
+                        **extra_pipe_args,
                     ).images[0]
                 else:
                     image = img2img(
@@ -480,7 +513,7 @@ def style_transfer_image_from_prompt(
                         image=input_pil,
                         num_inference_steps=n_steps,
                         strength=strength,
-                        **extra_refiner_pipe_args,
+                        **extra_pipe_args,
                     ).images[0]
             except Exception as err:
                 # logger.info("trying to permute prompt")
@@ -503,7 +536,7 @@ def style_transfer_image_from_prompt(
                             controlnet_conditioning_scale=controlnet_conditioning_scale,
                             image=canny_image,
                             num_inference_steps=n_steps,
-                            **extra_refiner_pipe_args,
+                            **extra_pipe_args,
                         ).images[0]
                     else:
                         image = img2img(
@@ -511,7 +544,7 @@ def style_transfer_image_from_prompt(
                             image=input_pil,
                             num_inference_steps=n_steps,
                             strength=strength,
-                            **extra_refiner_pipe_args,
+                            **extra_pipe_args,
                         ).images[0]
                 except Exception as inner_error:
                     # just error out
@@ -568,11 +601,12 @@ def style_transfer_image_from_prompt(
 #     return processes_pool.apply_async(create_image_from_prompt, args=(prompt,), ).wait()
 
 
-def create_image_from_prompt(prompt, width, height):
+def create_image_from_prompt(prompt, width, height, n_steps=5, extra_args={}):
     # round width and height down to multiple of 64
     block_width = width - (width % 64)
     block_height = height - (height % 64)
     prompt = shorten_too_long_text(prompt)
+    extra_total_args = {**extra_pipe_args, **extra_args}
     # image = pipe(guidance_scale=7,prompt=prompt).images[0]
     try:
         image = pipe(
@@ -585,7 +619,7 @@ def create_image_from_prompt(prompt, width, height):
             # height=512,
             # width=512,
             num_inference_steps=n_steps,
-            **extra_pipe_args,
+            **extra_total_args,
         ).images[0]
     except Exception as e:
         # try rm stopwords + half the prompt
@@ -611,6 +645,7 @@ def create_image_from_prompt(prompt, width, height):
                     # height=512,
                     # width=512,
                     num_inference_steps=n_steps,
+                    **extra_total_args,
                 ).images[0]
             except Exception as e:
                 # logger.info("trying to permute prompt")

@@ -69,3 +69,5 @@ google-cloud-aiplatform==1.25.0
 streamlit
 DeepCache
 tomesd
+peft
+gradio
