@@ -10,7 +10,7 @@ while True:
         with open("progress.txt", "r") as f:
             progress = f.read()
             last_mod_time = datetime.fromtimestamp(os.path.getmtime("progress.txt"))
-            if (datetime.now() - last_mod_time).seconds > 60 * 7:
+            if (datetime.now() - last_mod_time).seconds > 60 * 13:
                 # no progress for 7 minutes, restart/kill with -9
                 logger.info("restarting server to fix cuda issues (device side asserts)")
                 os.system("/usr/bin/bash kill -9 `ps axjf | grep uvicorn | awk '{print $1}'`")
