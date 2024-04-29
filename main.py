@@ -40,6 +40,7 @@ from transformers import set_seed
 
 from env import BUCKET_PATH, BUCKET_NAME
 from stable_diffusion_server.bucket_api import check_if_blob_exists, upload_to_bucket
+from stable_diffusion_server.bumpy_detection import detect_too_bumpy
 from stable_diffusion_server.utils import log_time
 
 # try:
@@ -254,7 +255,7 @@ high_noise_frac = 0.8
 use_refiner = False
 
 
-# efficiency 
+# efficiency
 
 # inpaintpipe.enable_model_cpu_offload()
 # inpaint_refiner.enable_model_cpu_offload()
@@ -276,7 +277,7 @@ use_refiner = False
 # CFG Scale: Use a CFG scale of 8 to 7
 # pipe.scheduler = KDPM2AncestralDiscreteScheduler.from_config(pipe.scheduler.config)
 
-# errors a bit 
+# errors a bit
 # refiner.scheduler = KDPM2AncestralDiscreteScheduler.from_config(
 #     refiner.scheduler.config
 # )
@@ -453,7 +454,7 @@ def is_defined(thing):
         return True
     else:
         return thing is not None
-    
+
 def style_transfer_image_from_prompt(
     prompt, image_url: str, strength=0.6, canny=False, input_pil=None
 ):
@@ -598,6 +599,13 @@ def style_transfer_image_from_prompt(
         ).images[0]
         # revert scheduler
         img2img.scheduler = lcm_scheduler
+    if detect_too_bumpy(image):
+        if prompt.endswith(" detail detail"):
+            raise Exception("image too bumpy, retrying failed") # todo fix and just accept it?
+        logger.info("image too bumpy, retrying once w different prompt detailed")
+        return style_transfer_image_from_prompt(
+            prompt + " detail", image_url, strength, canny, input_pil
+        )
 
     return image_to_bytes(image)
 
