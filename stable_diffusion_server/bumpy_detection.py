@@ -30,4 +30,5 @@ def detect_too_bumpy(pil_image):
             current_value = 0
     print(bottom, top, deviations)
     # return bottom > 30 or top > 30 or deviations > 30 # weird image
-    return bottom > 30000 and top > 30000 and deviations > 80 # weird image
+    # todo calibrate for larger res images
+    return bottom > 30000 and top > 30000 and deviations > 180 # weird image
