@@ -745,6 +745,14 @@ def create_image_from_prompt(prompt, width, height, n_steps=5, extra_args={}):
     with open("progress.txt", "w") as f:
         current_time = datetime.now().strftime("%H:%M:%S")
         f.write(f"{current_time}")
+
+    if detect_too_bumpy(image):
+        if prompt.endswith(" detail detail"):
+            raise Exception("image too bumpy, retrying failed") # todo fix and just accept it?
+        logger.info("image too bumpy, retrying once w different prompt detailed")
+        return create_image_from_prompt(
+            prompt + " detail", width, height, n_steps, extra_args
+        )
     return image_to_bytes(image)
 
 
