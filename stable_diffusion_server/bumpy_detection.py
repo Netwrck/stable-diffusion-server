@@ -25,8 +25,9 @@ def detect_too_bumpy(pil_image):
         current_value = gray_hist[i]
         previous_value = gray_hist[i-1] if i > 0 else 0
         # iv deviation is over 20px
-        if abs(current_value - previous_value) > 20:
+        if abs(current_value - previous_value) > 50:
             deviations += 1
             current_value = 0
-
-    return bottom > 30 or top > 30 or deviations > 30 # weird image
+    print(bottom, top, deviations)
+    # return bottom > 30 or top > 30 or deviations > 30 # weird image
+    return bottom > 30000 and top > 30000 and deviations > 80 # weird image
