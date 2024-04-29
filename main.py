@@ -50,6 +50,14 @@ from stable_diffusion_server.utils import log_time
 #     unet = UNet2DConditionModel.from_pretrained(
 #         "latent-consistency/lcm-ssd-1b", torch_dtype=torch.float16, variant="fp16"
 #     )
+#vae= None
+#try:
+#    vae = AutoencoderKL.from_pretrained(
+#        "models/sdxl-vae-fp16-fix",
+#        torch_dtype=torch.float16
+#    )
+#except Exception as e:
+#    print("failed to load vae")
 
 try:
     # pipe = DiffusionPipeline.from_pretrained(
