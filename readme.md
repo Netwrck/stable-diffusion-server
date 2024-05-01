@@ -28,9 +28,15 @@ pip install -r requirements.txt
 pip install -r dev-requirements.txt
 
 cd models
-git clone https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0
-git clone https://huggingface.co/segmind/SSD-1B
-git clone https://huggingface.co/latent-consistency/lcm-ssd-1b 
+git clone git@hf.co:/stabilityai/stable-diffusion-xl-base-1.0
+git clone git@hf.co:/dataautogpt3/ProteusV0.2
+
+# optional models for style transfer
+git clone git@hf.co:/diffusers/controlnet-canny-sdxl-1.0
+
+# older models you could try
+
+#git clone git@hf.co:/latent-consistency/lcm-ssd-1b 
 
 # install stopwords
 python -c "import nltk; nltk.download('stopwords')"
