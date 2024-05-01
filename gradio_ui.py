@@ -11,14 +11,14 @@ def style_transfer_make_images(image_array, text, strength):
     image = Image.fromarray(image_array)
     augmentations = [
         "",
-        "awesome",
-        "amazing",
+        # "awesome",
+        # "amazing",
         # "beautiful",
         # "hd",
         # "4k",
-        "detailed aesthetic",
-        "wonderful",
-        "anime hd",
+        # "detailed aesthetic",
+        # "wonderful",
+        # "anime hd",
     ]
     images = []
     for aug in augmentations:
@@ -37,23 +37,23 @@ def style_transfer_make_images(image_array, text, strength):
     return images
 
 
-def make_images(text, width, height):
+def make_images(text, width, height, steps, guidance_scale):
     augmentations = [
         "",
-        "awesome",
-        "amazing",
-        # "beautiful",
-        # "hd",
-        # "4k",
-        "detailed aesthetic",
-        "wonderful",
-        "anime hd",
+        # "awesome",
+        # "amazing",
+        # # "beautiful",
+        # # "hd",
+        # # "4k",
+        # "detailed aesthetic",
+        # "wonderful",
+        # "anime hd",
     ]
     images = []
     for aug in augmentations:
         print(aug)
         prompt = text + " " + aug
-        bio = create_image_from_prompt(prompt, width, height)
+        bio = create_image_from_prompt(prompt, width, height, steps, {"guidance_scale": guidance_scale})
         save_name  = prompt.replace(" ", "-")
         save_path = f"outputs/{save_name}.webp"
         with open(save_path, "wb") as f:
@@ -80,10 +80,12 @@ height = gr.Number(value=1024, label="Height")
 strength = gr.Number(value=0.65, label="Strength", step=0.01, minimum=0, maximum=1)
 prompt = gr.Textbox(lines=3, label="Prompt", placeholder="Anime detailed hd aesthetic best quality")
 image_input = gr.Image(label="Image")
+steps = gr.Number(value=8, label="steps", step=8, minimum=0, maximum=80)
+guidance_scale = gr.Number(value=1, label="Guidance Scale", step=0.1, minimum=0, maximum=20)
 
 with gr.Blocks() as _block:
     
-    interface_inputs = ["text", width, height]
+    interface_inputs = ["text", width, height, steps, guidance_scale]
     with gr.Tab("Text To Image"):
         demo = gr.Interface(fn=make_images, inputs=interface_inputs, outputs=gallery)
         

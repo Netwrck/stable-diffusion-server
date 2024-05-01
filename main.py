@@ -40,6 +40,7 @@ from transformers import set_seed
 
 from env import BUCKET_PATH, BUCKET_NAME
 from stable_diffusion_server.bucket_api import check_if_blob_exists, upload_to_bucket
+from stable_diffusion_server.bumpy_detection import detect_too_bumpy
 from stable_diffusion_server.utils import log_time
 
 # try:
@@ -74,6 +75,10 @@ if os.path.exists("models/lcm-lora-sdxl"):
 else:
     pipe.load_lora_weights("latent-consistency/lcm-lora-sdxl", adapter_name="lcm")
 pipe.set_adapters(["lcm"], adapter_weights=[1.0])
+
+# mem efficient
+pipe.enable_attention_slicing()
+pipe.enable_vae_slicing()
 
 all_components = pipe.components
 # all_components.pop("scheduler")
@@ -243,7 +248,7 @@ high_noise_frac = 0.8
 use_refiner = False
 
 
-# efficiency 
+# efficiency
 
 # inpaintpipe.enable_model_cpu_offload()
 # inpaint_refiner.enable_model_cpu_offload()
@@ -265,7 +270,7 @@ use_refiner = False
 # CFG Scale: Use a CFG scale of 8 to 7
 # pipe.scheduler = KDPM2AncestralDiscreteScheduler.from_config(pipe.scheduler.config)
 
-# errors a bit 
+# errors a bit
 # refiner.scheduler = KDPM2AncestralDiscreteScheduler.from_config(
 #     refiner.scheduler.config
 # )
@@ -436,7 +441,7 @@ def is_defined(thing):
         return True
     else:
         return thing is not None
-    
+
 def style_transfer_image_from_prompt(
     prompt, image_url: str, strength=0.6, canny=False, input_pil=None
 ):
@@ -581,6 +586,13 @@ def style_transfer_image_from_prompt(
         ).images[0]
         # revert scheduler
         img2img.scheduler = lcm_scheduler
+    if detect_too_bumpy(image):
+        if prompt.endswith(" detail detail"):
+            raise Exception("image too bumpy, retrying failed") # todo fix and just accept it?
+        logger.info("image too bumpy, retrying once w different prompt detailed")
+        return style_transfer_image_from_prompt(
+            prompt + " detail", image_url, strength, canny, input_pil
+        )
 
     return image_to_bytes(image)
 
@@ -592,11 +604,12 @@ def style_transfer_image_from_prompt(
 #     return processes_pool.apply_async(create_image_from_prompt, args=(prompt,), ).wait()
 
 
-def create_image_from_prompt(prompt, width, height):
+def create_image_from_prompt(prompt, width, height, n_steps=5, extra_args={}):
     # round width and height down to multiple of 64
     block_width = width - (width % 64)
     block_height = height - (height % 64)
     prompt = shorten_too_long_text(prompt)
+    extra_total_args = {**extra_pipe_args, **extra_args}
     # image = pipe(guidance_scale=7,prompt=prompt).images[0]
     try:
         image = pipe(
@@ -609,7 +622,7 @@ def create_image_from_prompt(prompt, width, height):
             # height=512,
             # width=512,
             num_inference_steps=n_steps,
-            **extra_pipe_args,
+            **extra_total_args,
         ).images[0]
     except Exception as e:
         # try rm stopwords + half the prompt
@@ -635,7 +648,7 @@ def create_image_from_prompt(prompt, width, height):
                     # height=512,
                     # width=512,
                     num_inference_steps=n_steps,
-                    **extra_pipe_args,
+                    **extra_total_args,
                 ).images[0]
             except Exception as e:
                 # logger.info("trying to permute prompt")
@@ -719,6 +732,14 @@ def create_image_from_prompt(prompt, width, height):
     with open("progress.txt", "w") as f:
         current_time = datetime.now().strftime("%H:%M:%S")
         f.write(f"{current_time}")
+
+    if detect_too_bumpy(image):
+        if prompt.endswith(" detail detail"):
+            raise Exception("image too bumpy, retrying failed") # todo fix and just accept it?
+        logger.info("image too bumpy, retrying once w different prompt detailed")
+        return create_image_from_prompt(
+            prompt + " detail", width, height, n_steps, extra_args
+        )
     return image_to_bytes(image)
 
 
