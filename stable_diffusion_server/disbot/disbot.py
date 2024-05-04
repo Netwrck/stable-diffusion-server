@@ -74,11 +74,11 @@ async def art_internal(interaction: discord.Interaction, prompt: str):
     width = 1024
     height = 1024
     if "--ar 16:9" in prompt or "16:9" in prompt:
-        width = 1920
-        height = 1080
+        width = 1360
+        height = 768
     elif "--ar 9:16" in prompt or "9:16" in prompt:
-        height = 1920
-        width = 1080
+        height = 1360
+        width = 768
     elif "--ar 3:4" in prompt or "3:4" in prompt:
         width = 864
         height = 1152
