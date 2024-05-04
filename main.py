@@ -443,7 +443,7 @@ def is_defined(thing):
         return thing is not None
 
 def style_transfer_image_from_prompt(
-    prompt, image_url: str, strength=0.6, canny=False, input_pil=None
+    prompt, image_url: str, strength=0.6, canny=False, input_pil=None, retries=3
 ):
     prompt = shorten_too_long_text(prompt)
     # image = pipe(guidance_scale=7,prompt=prompt).images[0]
@@ -587,11 +587,11 @@ def style_transfer_image_from_prompt(
         # revert scheduler
         img2img.scheduler = lcm_scheduler
     if detect_too_bumpy(image):
-        if prompt.endswith(" detail detail"):
+        if retries <= 0:
             raise Exception("image too bumpy, retrying failed") # todo fix and just accept it?
         logger.info("image too bumpy, retrying once w different prompt detailed")
         return style_transfer_image_from_prompt(
-            prompt + " detail", image_url, strength, canny, input_pil
+            prompt + " detail", image_url, strength - 0.01, canny, input_pil, retries - 1
         )
 
     return image_to_bytes(image)
@@ -604,7 +604,7 @@ def style_transfer_image_from_prompt(
 #     return processes_pool.apply_async(create_image_from_prompt, args=(prompt,), ).wait()
 
 
-def create_image_from_prompt(prompt, width, height, n_steps=5, extra_args={}):
+def create_image_from_prompt(prompt, width, height, n_steps=5, extra_args={}, retries=3):
     # round width and height down to multiple of 64
     block_width = width - (width % 64)
     block_height = height - (height % 64)
@@ -734,11 +734,11 @@ def create_image_from_prompt(prompt, width, height, n_steps=5, extra_args={}):
         f.write(f"{current_time}")
 
     if detect_too_bumpy(image):
-        if prompt.endswith(" detail detail"):
+        if retries <= 0:
             raise Exception("image too bumpy, retrying failed") # todo fix and just accept it?
         logger.info("image too bumpy, retrying once w different prompt detailed")
         return create_image_from_prompt(
-            prompt + " detail", width, height, n_steps, extra_args
+            prompt + " detail", width, height, n_steps + 1, extra_args, retries - 1
         )
     return image_to_bytes(image)
 
