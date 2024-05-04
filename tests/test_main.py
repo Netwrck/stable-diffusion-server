@@ -11,6 +11,13 @@ def test_create_image_from_prompt_sync():
     imagebytesresult = create_image_from_prompt("a test prompt", 512, 512)
     assert imagebytesresult is not None
 
+def test_create_image_from_prompt_sync_bug():
+    imagebytesresult = create_image_from_prompt("artstation art art paint colorful swirl letter a a paint colorful swirl confident engaging wow", 1024, 1024, n_steps=20)
+    assert imagebytesresult is not None
+    # save to disk
+    with open("testcreateimage.webp", "wb") as f:
+        f.write(imagebytesresult)
+
 
 def test_inpaint_from_prompt_sync():
     img_url = "https://raw.githubusercontent.com/CompVis/latent-diffusion/main/data/inpainting_examples/overture-creations-5sI6fQgYIuo.png"
