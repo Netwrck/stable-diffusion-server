@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from PIL import Image
+from loguru import logger
 
 from stable_diffusion_server.bumpy_detection import detect_too_bumpy
 
@@ -33,8 +34,10 @@ def test_detect_too_bumpy():
 
     # run over every dir in tests/data/bugs dir
     bugs_dir = current_dir / "data/bugs"
+    logger.info("checking bugs dir")
     for file in bugs_dir.iterdir():
         if file.is_file():
             image = Image.open(file)
+            logger.info(f"checking {file}")
             is_bumpy = detect_too_bumpy(image)
             assert is_bumpy == True

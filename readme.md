@@ -101,7 +101,7 @@ apt-get install -y supervisor
 sudo cat >/etc/supervisor/conf.d/python-app.conf << EOF
 [program:sdif_http_server]
 directory=/home/lee/code/sdif
-command=/home/lee/code/sdif/.env/bin/uvicorn --port 8000 --timeout-keep-alive 600 --workers 1 --backlog 1 --limit-concurrency 4 main:app
+command=/home/lee/code/sdif/.env/bin/uvicorn --port 8000 --timeout-keep-alive 12 --workers 1 --backlog 1 --limit-concurrency 2 main:app
 autostart=true
 autorestart=true
 environment=VIRTUAL_ENV="/home/lee/code/sdif/.env/",PATH="/opt/app/sdif/.env/bin",HOME="/home/lee",GOOGLE_APPLICATION_CREDENTIALS="secrets/google-credentials.json",PYTHONPATH="/home/lee/code/sdif"
@@ -110,8 +110,8 @@ stderr_logfile=syslog
 user=lee
 EOF
 
-supervisorctl reread
-supervisorctl update
+sudo supervisorctl reread
+sudo supervisorctl update
 ```
 
 #### run a manager process to kill/restart if the server if it is hanging
