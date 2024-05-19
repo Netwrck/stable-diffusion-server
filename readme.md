@@ -1,16 +1,12 @@
-simple stable diffusion server that saves images to cloud storage - returns links to google cloud storage
+Simple Stable Diffusion Server 
 
-## Shameless Plug from Maintainers
-[![netwrck logo](https://static.netwrck.com/static/img/netwrck-logo-colord256.png)](https://netwrck.com)
-[![eBank logo](https://static.netwrck.com/static/img/ebank-logo-removebg-full387.png)](https://aiart-generator.art)
+![art stable diffusion server logo](https://static.netwrck.com/static/uploads/aiartstation-art-server-logo-minimalist-artistic-computer-stable-diffusion-art-server-company-confident-engaging-wow-3.webp)
 
-Checkout [Voiced AI Characters to chat with](https://netwrck.com) at [netwrck.com](https://netwrck.com)
+Can run locally for style transfer art generation and inpainting.
 
-Characters are narrated and written by many GPT models trained on 1000s of fantasy novels and chats.
+Can be ran in production mode that saves images to cloud storage - returns links to google cloud storage
 
-For Vision LLMs for making Text - Checkout [Text-Generator.io](https://text-generator.io) for a Open Source text generator that uses many AI models to generate the best along with image understanding and OCR networks.
-
-For AI Art Generation checkout [AI Art Generator and Search Engine](https://aiart-generator.art)
+For Hosted AI Art Generation checkout [AI Art Generator and Search Engine](https://aiart-generator.art) which also makes videos and 2k upscaled images.
 
 ## Setup
 
@@ -42,7 +38,7 @@ git clone git@hf.co:/diffusers/controlnet-canny-sdxl-1.0
 python -c "import nltk; nltk.download('stopwords')"
 ```
 
-#### Run the gradio UI
+#### Run the Gradio UI
 
 ```
 python gradio_ui.py
@@ -132,3 +128,23 @@ run the server in a infinite loop
 ```
 while true; do GOOGLE_APPLICATION_CREDENTIALS=secrets/google-credentials.json PYTHONPATH=. uvicorn --port 8000 --timeout-keep-alive 600 --workers 1 --backlog 1 --limit-concurrency 4 main:app; done
 ```
+
+# windows setup
+
+py -3.11 -m venv .wvenv
+. .wvenv/Scripts/activate
+python -m pip install -r requirements.txt
+
+# contributing guidelines
+Please help in any way.
+
+
+## Shameless Plug from Maintainers
+[![netwrck logo](https://static.netwrck.com/static/img/netwrck-logo-colord256.png)](https://netwrck.com)
+[![eBank logo](https://static.netwrck.com/static/img/ebank-logo-removebg-full387.png)](https://aiart-generator.art)
+
+Checkout [Voiced AI Characters to chat with](https://netwrck.com) at [netwrck.com](https://netwrck.com)
+
+Characters are narrated and written by many GPT models trained on 1000s of fantasy novels and chats.
+
+For Vision LLMs for making Text - Checkout [Text-Generator.io](https://text-generator.io) for a Open Source text generator that uses many AI models to generate the best along with image understanding and OCR networks.
