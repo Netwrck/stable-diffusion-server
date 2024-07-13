@@ -60,3 +60,15 @@ def test_style_transfer_from_prompt_sync_control_pil():
     imagepilresult.save("teststyletransfer-cnet-tmp-owl.png")
 
     assert imagepilresult is not None
+
+def test_style_transfer_from_prompt_sync_control_avif():
+    img = Image.open("tests/andrew-ng.avif").convert("RGB")
+    img = Image.open("tests/owl.png").convert("RGB")
+
+    imagepilresult = style_transfer_image_from_prompt(
+        "a owl cinematic wonderful realistic owl perching on log", None, 0.6, True, img
+    )
+    # save to disk
+    imagepilresult.save("teststyletransfer-cnet-tmp-owl.png")
+
+    assert imagepilresult is not None
