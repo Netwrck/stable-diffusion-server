@@ -1,6 +1,6 @@
 # Simple Stable Diffusion Server
 
-![Stable Diffusion Server Logo](https://static.netwrck.com/static/uploads/aiartstation-art-server-logo-minimalist-artistic-computer-stable-diffusion-art-server-company-confident-engaging-wow-3.webp)
+<img src="https://static.netwrck.com/static/uploads/aiartstation-art-server-logo-minimalist-artistic-computer-stable-diffusion-art-server-company-confident-engaging-wow-3.webp" alt="Stable Diffusion Server Logo" width="256">
 
 Welcome to Simple Stable Diffusion Server, your go-to solution for AI-powered image generation and manipulation!
 
