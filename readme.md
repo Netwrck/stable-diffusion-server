@@ -1,45 +1,52 @@
-Simple Stable Diffusion Server 
+# Simple Stable Diffusion Server
 
-![art stable diffusion server logo](https://static.netwrck.com/static/uploads/aiartstation-art-server-logo-minimalist-artistic-computer-stable-diffusion-art-server-company-confident-engaging-wow-3.webp)
+![Stable Diffusion Server Logo](https://static.netwrck.com/static/uploads/aiartstation-art-server-logo-minimalist-artistic-computer-stable-diffusion-art-server-company-confident-engaging-wow-3.webp)
 
-Can run locally for style transfer art generation and inpainting.
+Welcome to Simple Stable Diffusion Server, your go-to solution for AI-powered image generation and manipulation!
 
-Can be ran in production mode that saves images to cloud storage - returns links to google cloud storage
+## Features
 
-For Hosted AI Art Generation checkout [AI Art Generator and Search Engine](https://aiart-generator.art) which also makes videos and 2k upscaled images.
+- **Local Deployment**: Run locally for style transfer, art generation and inpainting.
+- **Production Mode**: Save images to cloud storage and retrieve links to Google Cloud Storage.
+- **Versatile Applications**: Perfect for AI art generation, style transfer, and image inpainting. Bring any SDXL/diffusers model.
+- **Easy to Use**: Simple interface for generating images in Gradio locally and easy to use FastAPI docs/server for advanced users.
 
-## Setup
+For a hosted AI Art Generation experience, check out our [AI Art Generator and Search Engine](https://aiart-generator.art), which offers advanced features like video creation and 2K upscaled images.
 
-. Create a virtual environment (optional)
+## Quick Start
 
+### Setup
+
+1. Create a virtual environment (optional):
 ```bash
 python3 -m venv venv
 source venv/bin/activate
 ```
 
-#### Install dependencies
-
+2. Install dependencies:
 ```bash
 pip install -r requirements.txt
 pip install -r dev-requirements.txt
+```
 
+3. Clone necessary models (or point to your own SDXL models in main.py)
+```bash
 cd models
 git clone git@hf.co:/stabilityai/stable-diffusion-xl-base-1.0
 git clone git@hf.co:/dataautogpt3/ProteusV0.2
 
-# optional models for style transfer
+# Optional for line based style transfer
 git clone git@hf.co:/diffusers/controlnet-canny-sdxl-1.0
+```
 
-# older models you could try
-
-#git clone git@hf.co:/latent-consistency/lcm-ssd-1b 
-
-# install stopwords
+4. Install NLTK stopwords:
+```bash
 python -c "import nltk; nltk.download('stopwords')"
 ```
 
-#### Run the Gradio UI
+### Running the Gradio UI
 
+Launch the user-friendly Gradio interface:
 ```
 python gradio_ui.py
 ```
@@ -59,10 +66,8 @@ Images generated will be stored in your bucket
 ```bash
 GOOGLE_APPLICATION_CREDENTIALS=secrets/google-credentials.json gunicorn  -k uvicorn.workers.UvicornWorker -b :8000 main:app --timeout 600 -w 1 
 ```
-
 with max 4 requests at a time
 This will drop a lot of requests under load instead of taking on too much work and causing OOM Errors.
-
 ```bash
 GOOGLE_APPLICATION_CREDENTIALS=secrets/google-credentials.json PYTHONPATH=. uvicorn --port 8000 --timeout-keep-alive 600 --workers 1 --backlog 1 --limit-concurrency 4 main:app
 ```
@@ -147,4 +152,6 @@ Checkout [Voiced AI Characters to chat with](https://netwrck.com) at [netwrck.co
 
 Characters are narrated and written by many GPT models trained on 1000s of fantasy novels and chats.
 
-For Vision LLMs for making Text - Checkout [Text-Generator.io](https://text-generator.io) for a Open Source text generator that uses many AI models to generate the best along with image understanding and OCR networks.
+For Vision LLMs for making Text - Checkout [Text-Generator.io](https://text-generator.io) for a Open 
+Source text generator that uses many AI models to generate the best along with image understanding and 
+OCR networks.
