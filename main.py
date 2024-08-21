@@ -10,7 +10,7 @@ from multiprocessing.pool import Pool
 from pathlib import Path
 from urllib.parse import quote_plus
 
-import tomesd
+# import tomesd
 
 import cv2
 import numpy as np
@@ -155,15 +155,17 @@ inpaintpipe = StableDiffusionXLInpaintPipeline.from_pretrained(
     # load_connected_pipeline=
 )
 
-# controlnet_conditioning_scale = 0.5  # recommended for good generalization
-# controlnet = ControlNetModel.from_pretrained(
-#     "diffusers/controlnet-canny-sdxl-1.0", torch_dtype=torch.float16, variant="fp16",
-# )
-# controlnet.to("cuda")
-# controlnetpipe = StableDiffusionXLControlNetPipeline.from_pretrained(
-#     "stabilityai/stable-diffusion-xl-base-1.0", controlnet=controlnet, **pipe.components
-# )
-# controlnetpipe.to("cuda")
+controlnet_conditioning_scale = 0.5  # recommended for good generalization
+controlnet = ControlNetModel.from_pretrained(
+    "diffusers/controlnet-canny-sdxl-1.0", torch_dtype=torch.float16, variant="fp16",
+)
+controlnet.to("cuda")
+controlnetpipe = StableDiffusionXLControlNetPipeline.from_pretrained(
+    # "stabilityai/stable-diffusion-xl-base-1.0",
+    "models/ProteusV0.2",
+    controlnet=controlnet, **pipe.components
+)
+controlnetpipe.to("cuda")
 
 
 # # switch out to save gpu mem
