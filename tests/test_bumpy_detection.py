@@ -19,14 +19,14 @@ def test_detect_too_bumpy():
     for file in files:
         image = Image.open(current_dir / f'{file}')
         is_bumpy = detect_too_bumpy(image)
-        assert is_bumpy == True
+        assert is_bumpy
 
     image = Image.open(
         current_dir /
         "data/Serqet-Selket-goddess-of-protection-Egyptian-Heritage-octane-render-cinematic-color-grading-soft-light-atmospheric-reali.png"
     )
     is_bumpy = detect_too_bumpy(image)
-    assert is_bumpy == False
+    assert not is_bumpy
 
     # run over every img in outputs dir
     outputs_dir = (current_dir).parent / "outputs"
@@ -34,7 +34,7 @@ def test_detect_too_bumpy():
         if file.is_file():
             image = Image.open(file)
             is_bumpy = detect_too_bumpy(image)
-            assert is_bumpy == False
+            assert not is_bumpy
 
     # run over every dir in tests/data/bugs dir
     bugs_dir = current_dir / "data/bugs"
@@ -44,4 +44,4 @@ def test_detect_too_bumpy():
             image = Image.open(file)
             logger.info(f"checking {file}")
             is_bumpy = detect_too_bumpy(image)
-            assert is_bumpy == True
+            assert is_bumpy
