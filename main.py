@@ -41,6 +41,7 @@ from transformers import set_seed
 from env import BUCKET_PATH, BUCKET_NAME
 from stable_diffusion_server.bucket_api import check_if_blob_exists, upload_to_bucket
 from stable_diffusion_server.bumpy_detection import detect_too_bumpy
+from stable_diffusion_server.image_processing import process_image_for_stable_diffusion
 from stable_diffusion_server.utils import log_time
 try:
     import pillow_avif
@@ -349,7 +350,7 @@ def make_image(prompt: str, save_path: str = ""):
 
 
 @app.get("/create_and_upload_image")
-def create_and_upload_image(
+async def create_and_upload_image(
     prompt: str, width: int = 1024, height: int = 1024, save_path: str = ""
 ):
     path_components = save_path.split("/")[0:-1]
@@ -362,7 +363,7 @@ def create_and_upload_image(
 
 
 @app.get("/inpaint_and_upload_image")
-def inpaint_and_upload_image(
+async def inpaint_and_upload_image(
     prompt: str, image_url: str, mask_url: str, save_path: str = ""
 ):
     path_components = save_path.split("/")[0:-1]
@@ -377,8 +378,12 @@ def inpaint_and_upload_image(
 
 
 @app.get("/style_transfer_and_upload_image")
-def style_transfer_and_upload_image(
-    prompt: str, image_url: str, save_path: str = "", strength: float = 0.6, canny=False
+async def style_transfer_and_upload_image(
+    prompt: str,
+    image_url: str,
+    save_path: str = "",
+    strength: float = 0.6,
+    canny: bool = False,
 ):
     # todo also accept image bytes directly?
     path_components = save_path.split("/")[0:-1]
@@ -391,9 +396,41 @@ def style_transfer_and_upload_image(
     )
     return JSONResponse({"path": path})
 
+from fastapi import File, UploadFile
+
+@app.post("/style_transfer_bytes_and_upload_image")
+async def style_transfer_bytes_and_upload_image(
+    prompt: str,
+    image_url: str = None,
+    save_path: str = "",
+    strength: float = 0.6,
+    canny: bool = False,
+    image_file: UploadFile = File(None)
+):
+    path_components = save_path.split("/")[0:-1]
+    final_name = save_path.split("/")[-1]
+    if not path_components:
+        path_components = []
+    save_path = "/".join(path_components) + quote_plus(final_name)
+
+    image_bytes = None
+    if image_file:
+        image_bytes = await image_file.read()
+    elif image_url:
+        path = get_image_or_style_transfer_upload_to_cloud_storage(
+            prompt, image_url, save_path, strength, canny
+        )
+    else:
+        return JSONResponse({"error": "Either image_url or image_file must be provided"}, status_code=400)
+
+    path = get_image_or_style_transfer_upload_to_cloud_storage(
+        prompt, image_url, save_path, strength, canny, image_bytes
+    )
+    return JSONResponse({"path": path})
+
 
 def get_image_or_style_transfer_upload_to_cloud_storage(
-    prompt: str, image_url: str, save_path: str, strength=0.6, canny=False
+    prompt: str, image_url: str, save_path: str, strength=0.6, canny=False, image_bytes=None
 ):
     prompt = shorten_too_long_text(prompt)
     save_path = shorten_too_long_text(save_path)
@@ -401,7 +438,11 @@ def get_image_or_style_transfer_upload_to_cloud_storage(
     if check_if_blob_exists(save_path):
         return f"https://{BUCKET_NAME}/{BUCKET_PATH}/{save_path}"
     with torch.inference_mode():
-        bio = style_transfer_image_from_prompt(prompt, image_url, strength, canny)
+        if image_bytes:
+            input_image = Image.open(BytesIO(image_bytes))
+            bio = style_transfer_image_from_prompt(prompt, image_url, strength, canny, input_pil=input_image)
+        else:
+            bio = style_transfer_image_from_prompt(prompt, image_url, strength, canny)
     if bio is None:
         return None  # error thrown in pool
     link = upload_to_bucket(save_path, bio, is_bytesio=True)
@@ -449,7 +490,7 @@ def is_defined(thing):
         return thing is not None
 
 def style_transfer_image_from_prompt(
-    prompt, image_url: str, strength=0.6, canny=False, input_pil=None, retries=3
+    prompt, image_url: str | Image.Image, strength=0.6, canny=False, input_pil=None, retries=3,
 ):
     prompt = shorten_too_long_text(prompt)
     # image = pipe(guidance_scale=7,prompt=prompt).images[0]
@@ -460,6 +501,7 @@ def style_transfer_image_from_prompt(
     canny_image = None
     if canny:
         with log_time("canny"):
+            input_pil = process_image_for_stable_diffusion(input_pil)
             in_image = np.array(input_pil)
             in_image = cv2.Canny(in_image, 100, 200)
             in_image = in_image[:, :, None]
