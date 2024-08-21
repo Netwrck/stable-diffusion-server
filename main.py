@@ -42,7 +42,11 @@ from env import BUCKET_PATH, BUCKET_NAME
 from stable_diffusion_server.bucket_api import check_if_blob_exists, upload_to_bucket
 from stable_diffusion_server.bumpy_detection import detect_too_bumpy
 from stable_diffusion_server.utils import log_time
-
+try:
+    import pillow_avif
+    assert pillow_avif # required to use avif
+except Exception as e:
+    logger.error(f"Error importing pillow_avif: {e}")
 # try:
 #     unet = UNet2DConditionModel.from_pretrained(
 #         "models/lcm-ssd-1b", torch_dtype=torch.float16, variant="fp16"

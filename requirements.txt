@@ -71,3 +71,4 @@ DeepCache
 tomesd
 peft
 gradio
+pillow-avif-plugin
