@@ -47,6 +47,10 @@ try:
     assert pillow_avif # required to use avif
 except Exception as e:
     logger.error(f"Error importing pillow_avif: {e}")
+
+#model_name = "models/SSD-1B"
+model_name = "models/ProteusV0.2"
+# model_name = "dataautogpt3/ProteusV0.2"
 # try:
 #     unet = UNet2DConditionModel.from_pretrained(
 #         "models/lcm-ssd-1b", torch_dtype=torch.float16, variant="fp16"
@@ -61,7 +65,7 @@ try:
     #     "models/SSD-1B", unet=unet, torch_dtype=torch.float16, variant="fp16"
     # )
     pipe = DiffusionPipeline.from_pretrained(
-        "models/ProteusV0.2", torch_dtype=torch.float16, variant="fp16"
+        model_name, torch_dtype=torch.float16, variant="fp16"
     )
 except OSError as e:
     # pipe = DiffusionPipeline.from_pretrained(
@@ -122,7 +126,7 @@ pipe.to("cuda")
 refiner = DiffusionPipeline.from_pretrained(
     # "stabilityai/stable-diffusion-xl-refiner-1.0",
     # "dataautogpt3/OpenDalle",
-    "models/ProteusV0.2",
+    model_name,
     # "models/SSD-1B",
     unet=pipe.unet,
     text_encoder_2=pipe.text_encoder_2,
@@ -145,7 +149,7 @@ refiner.to("cuda")
 # inpaintpipe = StableDiffusionInpaintPipeline(**pipe.components)
 inpaintpipe = StableDiffusionXLInpaintPipeline.from_pretrained(
     # "models/stable-diffusion-xl-base-1.0",
-    "models/ProteusV0.2",
+    model_name,
     torch_dtype=torch.float16,
     variant="fp16",
     use_safetensors=True,
@@ -166,7 +170,7 @@ controlnet = ControlNetModel.from_pretrained(
 controlnet.to("cuda")
 controlnetpipe = StableDiffusionXLControlNetPipeline.from_pretrained(
     # "stabilityai/stable-diffusion-xl-base-1.0",
-    "models/ProteusV0.2",
+    model_name,
     controlnet=controlnet, **pipe.components
 )
 controlnetpipe.to("cuda")
@@ -205,7 +209,7 @@ inpaintpipe.watermark = None
 # todo do we need this?
 inpaint_refiner = StableDiffusionXLInpaintPipeline.from_pretrained(
     # "stabilityai/stable-diffusion-xl-refiner-1.0",
-    "models/ProteusV0.2",
+    model_name,
     text_encoder_2=inpaintpipe.text_encoder_2,
     vae=inpaintpipe.vae,
     torch_dtype=torch.float16,
