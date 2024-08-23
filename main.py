@@ -95,7 +95,7 @@ all_components = pipe.components
 img2img = StableDiffusionXLImg2ImgPipeline(
     **all_components,
 )
-
+img2img.watermark = None
 # pipe = DiffusionPipeline.from_pretrained(
 #     "models/stable-diffusion-xl-base-1.0",
 #     torch_dtype=torch.float16,
@@ -159,6 +159,7 @@ inpaintpipe = StableDiffusionXLInpaintPipeline.from_pretrained(
     vae=pipe.vae,
     # load_connected_pipeline=
 )
+inpaintpipe.watermark = None
 
 controlnet_conditioning_scale = 0.5  # recommended for good generalization
 controlnet = ControlNetModel.from_pretrained(
@@ -171,7 +172,7 @@ controlnetpipe = StableDiffusionXLControlNetPipeline.from_pretrained(
     controlnet=controlnet, **pipe.components
 )
 controlnetpipe.to("cuda")
-
+controlnetpipe.watermark = None
 
 # # switch out to save gpu mem
 # del inpaintpipe.vae
@@ -497,11 +498,12 @@ def style_transfer_image_from_prompt(
 
     if not is_defined(input_pil):
         input_pil = load_image(image_url).convert("RGB")
+    #resize to nice size
+    input_pil = process_image_for_stable_diffusion(input_pil)
 
     canny_image = None
     if canny:
         with log_time("canny"):
-            input_pil = process_image_for_stable_diffusion(input_pil)
             in_image = np.array(input_pil)
             in_image = cv2.Canny(in_image, 100, 200)
             in_image = in_image[:, :, None]

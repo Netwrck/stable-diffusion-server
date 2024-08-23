@@ -76,6 +76,22 @@ def test_style_transfer_from_prompt_sync_control_pil():
     assert image_bytes is not None
 
 
+
+def test_style_transfer_from_prompt_sync_control_pil_dude():
+    img = Image.open("tests/dudehappy.jpeg").convert("RGB")
+    # img = Image.open("tests/owl.png").convert("RGB")
+
+    image_bytes = style_transfer_image_from_prompt(
+        "starry night van gogh", None, 0.6,
+        True, img)
+    # save to disk
+
+    with open("results/teststyletransfer-cnet-starry.webp", "wb") as f:
+        f.write(image_bytes)
+
+    assert image_bytes is not None
+
+
 def test_style_transfer_from_prompt_sync_control_avif():
     img = Image.open("tests/andrew-ng.avif").convert("RGB")
     # img = Image.open("tests/owl.png").convert("RGB")
