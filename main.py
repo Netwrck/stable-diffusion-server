@@ -9,6 +9,7 @@ from itertools import permutations
 from multiprocessing.pool import Pool
 from pathlib import Path
 from urllib.parse import quote_plus
+import uuid
 
 # import tomesd
 
@@ -49,7 +50,7 @@ try:
 except Exception as e:
     logger.error(f"Error importing pillow_avif: {e}")
 
-#model_name = "models/SSD-1B"
+# model_name = "models/SSD-1B"
 model_name = "models/ProteusV0.2"
 # model_name = "dataautogpt3/ProteusV0.2"
 # try:
@@ -409,27 +410,39 @@ async def style_transfer_bytes_and_upload_image(
     image_url: str = None,
     save_path: str = "",
     strength: float = 0.6,
-    canny: bool = False,
+    canny: str = 'true',
     image_file: UploadFile = File(None)
 ):
+    uuid_str = str(uuid.uuid4())[:7]
     path_components = save_path.split("/")[0:-1]
     final_name = save_path.split("/")[-1]
+    if canny == 'true':
+        canny_bool = True
+    else:
+        canny_bool = False
+
     if not path_components:
         path_components = []
-    save_path = "/".join(path_components) + quote_plus(final_name)
+    # Add UUID before the file extension
+    if '.' in final_name:
+        name_parts = final_name.rsplit('.', 1)
+        final_name = f"{name_parts[0]}_{uuid_str}.{name_parts[1]}"
+    else:
+        final_name = f"{final_name}_{uuid_str}"
 
+    save_path = "/".join(path_components) + quote_plus(final_name)
     image_bytes = None
     if image_file:
         image_bytes = await image_file.read()
     elif image_url:
         path = get_image_or_style_transfer_upload_to_cloud_storage(
-            prompt, image_url, save_path, strength, canny
+            prompt, image_url, save_path, strength, canny_bool
         )
     else:
         return JSONResponse({"error": "Either image_url or image_file must be provided"}, status_code=400)
 
     path = get_image_or_style_transfer_upload_to_cloud_storage(
-        prompt, image_url, save_path, strength, canny, image_bytes
+        prompt, image_url, save_path, strength, canny_bool, image_bytes
     )
     return JSONResponse({"path": path})
 
