@@ -11,6 +11,7 @@ def test_upload_to_bucket():
     #  check if file exists
     assert check_if_blob_exists('test.txt')
 
+
 def test_upload_bytesio_to_bucket():
     # bytesio = open('backdrops/medi.png', 'rb')
     pilimage = Image.open('backdrops/medi.png')

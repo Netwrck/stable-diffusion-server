@@ -1,10 +1,13 @@
 from pathlib import Path
 
 from PIL import Image
+from loguru import logger
 
 from stable_diffusion_server.bumpy_detection import detect_too_bumpy
 
 current_dir = Path(__file__).parent
+
+
 def test_detect_too_bumpy():
     files = [
         # "data/bug.webp",
@@ -14,13 +17,16 @@ def test_detect_too_bumpy():
         "data/bug4.webp",
     ]
     for file in files:
-        image = Image.open(current_dir /f'{file}')
+        image = Image.open(current_dir / f'{file}')
         is_bumpy = detect_too_bumpy(image)
-        assert is_bumpy == True
+        assert is_bumpy
 
-    image = Image.open(current_dir / "data/Serqet-Selket-goddess-of-protection-Egyptian-Heritage-octane-render-cinematic-color-grading-soft-light-atmospheric-reali.png")
-    is_bumpy= detect_too_bumpy(image)
-    assert is_bumpy == False
+    image = Image.open(
+        current_dir /
+        "data/Serqet-Selket-goddess-of-protection-Egyptian-Heritage-octane-render-cinematic-color-grading-soft-light-atmospheric-reali.png"
+    )
+    is_bumpy = detect_too_bumpy(image)
+    assert not is_bumpy
 
     # run over every img in outputs dir
     outputs_dir = (current_dir).parent / "outputs"
@@ -28,13 +34,14 @@ def test_detect_too_bumpy():
         if file.is_file():
             image = Image.open(file)
             is_bumpy = detect_too_bumpy(image)
-            assert is_bumpy == False
-
+            assert not is_bumpy
 
     # run over every dir in tests/data/bugs dir
     bugs_dir = current_dir / "data/bugs"
+    logger.info("checking bugs dir")
     for file in bugs_dir.iterdir():
         if file.is_file():
             image = Image.open(file)
+            logger.info(f"checking {file}")
             is_bumpy = detect_too_bumpy(image)
-            assert is_bumpy == True
+            assert is_bumpy

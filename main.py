@@ -9,8 +9,9 @@ from itertools import permutations
 from multiprocessing.pool import Pool
 from pathlib import Path
 from urllib.parse import quote_plus
+import uuid
 
-import tomesd
+# import tomesd
 
 import cv2
 import numpy as np
@@ -41,8 +42,17 @@ from transformers import set_seed
 from env import BUCKET_PATH, BUCKET_NAME
 from stable_diffusion_server.bucket_api import check_if_blob_exists, upload_to_bucket
 from stable_diffusion_server.bumpy_detection import detect_too_bumpy
+from stable_diffusion_server.image_processing import process_image_for_stable_diffusion
 from stable_diffusion_server.utils import log_time
+try:
+    import pillow_avif
+    assert pillow_avif # required to use avif
+except Exception as e:
+    logger.error(f"Error importing pillow_avif: {e}")
 
+# model_name = "models/SSD-1B"
+model_name = "models/ProteusV0.2"
+# model_name = "dataautogpt3/ProteusV0.2"
 # try:
 #     unet = UNet2DConditionModel.from_pretrained(
 #         "models/lcm-ssd-1b", torch_dtype=torch.float16, variant="fp16"
@@ -65,7 +75,7 @@ try:
     #     "models/SSD-1B", unet=unet, torch_dtype=torch.float16, variant="fp16"
     # )
     pipe = DiffusionPipeline.from_pretrained(
-        "models/ProteusV0.2", torch_dtype=torch.float16, variant="fp16"
+        model_name, torch_dtype=torch.float16, variant="fp16"
     )
 except OSError as e:
     # pipe = DiffusionPipeline.from_pretrained(
@@ -98,7 +108,7 @@ all_components = pipe.components
 img2img = StableDiffusionXLImg2ImgPipeline(
     **all_components,
 )
-
+img2img.watermark = None
 # pipe = DiffusionPipeline.from_pretrained(
 #     "models/stable-diffusion-xl-base-1.0",
 #     torch_dtype=torch.float16,
@@ -126,7 +136,7 @@ pipe.to("cuda")
 refiner = DiffusionPipeline.from_pretrained(
     # "stabilityai/stable-diffusion-xl-refiner-1.0",
     # "dataautogpt3/OpenDalle",
-    "models/ProteusV0.2",
+    model_name,
     # "models/SSD-1B",
     unet=pipe.unet,
     text_encoder_2=pipe.text_encoder_2,
@@ -150,7 +160,7 @@ refiner.to("cuda")
 print('cnet')
 inpaintpipe = StableDiffusionXLInpaintPipeline.from_pretrained(
     # "models/stable-diffusion-xl-base-1.0",
-    "models/ProteusV0.2",
+    model_name,
     torch_dtype=torch.float16,
     variant="fp16",
     use_safetensors=True,
@@ -163,15 +173,21 @@ inpaintpipe = StableDiffusionXLInpaintPipeline.from_pretrained(
     vae=pipe.vae,
     # load_connected_pipeline=
 )
-# controlnet = ControlNetModel.from_pretrained(
-#     "diffusers/controlnet-canny-sdxl-1.0", torch_dtype=torch.float16, variant="fp16",
-# )
-# controlnet.to("cuda")
-# controlnetpipe = StableDiffusionXLControlNetPipeline.from_pretrained(
-#     "stabilityai/stable-diffusion-xl-base-1.0", controlnet=controlnet, **pipe.components
-# )
-# controlnetpipe.to("cuda")
 
+inpaintpipe.watermark = None
+
+controlnet_conditioning_scale = 0.5  # recommended for good generalization
+controlnet = ControlNetModel.from_pretrained(
+    "diffusers/controlnet-canny-sdxl-1.0", torch_dtype=torch.float16, variant="fp16",
+)
+controlnet.to("cuda")
+controlnetpipe = StableDiffusionXLControlNetPipeline.from_pretrained(
+    # "stabilityai/stable-diffusion-xl-base-1.0",
+    model_name,
+    controlnet=controlnet, **pipe.components
+)
+controlnetpipe.to("cuda")
+controlnetpipe.watermark = None
 
 # # switch out to save gpu mem
 # del inpaintpipe.vae
@@ -206,7 +222,7 @@ inpaintpipe.watermark = None
 # todo do we need this?
 inpaint_refiner = StableDiffusionXLInpaintPipeline.from_pretrained(
     # "stabilityai/stable-diffusion-xl-refiner-1.0",
-    "models/ProteusV0.2",
+    model_name,
     text_encoder_2=inpaintpipe.text_encoder_2,
     vae=inpaintpipe.vae,
     torch_dtype=torch.float16,
@@ -356,7 +372,7 @@ def make_image(prompt: str, save_path: str = ""):
 
 
 @app.get("/create_and_upload_image")
-def create_and_upload_image(
+async def create_and_upload_image(
     prompt: str, width: int = 1024, height: int = 1024, save_path: str = ""
 ):
     path_components = save_path.split("/")[0:-1]
@@ -369,7 +385,7 @@ def create_and_upload_image(
 
 
 @app.get("/inpaint_and_upload_image")
-def inpaint_and_upload_image(
+async def inpaint_and_upload_image(
     prompt: str, image_url: str, mask_url: str, save_path: str = ""
 ):
     path_components = save_path.split("/")[0:-1]
@@ -384,8 +400,12 @@ def inpaint_and_upload_image(
 
 
 @app.get("/style_transfer_and_upload_image")
-def style_transfer_and_upload_image(
-    prompt: str, image_url: str, save_path: str = "", strength: float = 0.6, canny=False
+async def style_transfer_and_upload_image(
+    prompt: str,
+    image_url: str,
+    save_path: str = "",
+    strength: float = 0.6,
+    canny: bool = False,
 ):
     # todo also accept image bytes directly?
     path_components = save_path.split("/")[0:-1]
@@ -398,9 +418,53 @@ def style_transfer_and_upload_image(
     )
     return JSONResponse({"path": path})
 
+from fastapi import File, UploadFile
+
+@app.post("/style_transfer_bytes_and_upload_image")
+async def style_transfer_bytes_and_upload_image(
+    prompt: str,
+    image_url: str = None,
+    save_path: str = "",
+    strength: float = 0.6,
+    canny: str = 'true',
+    image_file: UploadFile = File(None)
+):
+    uuid_str = str(uuid.uuid4())[:7]
+    path_components = save_path.split("/")[0:-1]
+    final_name = save_path.split("/")[-1]
+    if canny == 'true':
+        canny_bool = True
+    else:
+        canny_bool = False
+
+    if not path_components:
+        path_components = []
+    # Add UUID before the file extension
+    if '.' in final_name:
+        name_parts = final_name.rsplit('.', 1)
+        final_name = f"{name_parts[0]}_{uuid_str}.{name_parts[1]}"
+    else:
+        final_name = f"{final_name}_{uuid_str}"
+
+    save_path = "/".join(path_components) + quote_plus(final_name)
+    image_bytes = None
+    if image_file:
+        image_bytes = await image_file.read()
+    elif image_url:
+        path = get_image_or_style_transfer_upload_to_cloud_storage(
+            prompt, image_url, save_path, strength, canny_bool
+        )
+    else:
+        return JSONResponse({"error": "Either image_url or image_file must be provided"}, status_code=400)
+
+    path = get_image_or_style_transfer_upload_to_cloud_storage(
+        prompt, image_url, save_path, strength, canny_bool, image_bytes
+    )
+    return JSONResponse({"path": path})
+
 
 def get_image_or_style_transfer_upload_to_cloud_storage(
-    prompt: str, image_url: str, save_path: str, strength=0.6, canny=False
+    prompt: str, image_url: str, save_path: str, strength=0.6, canny=False, image_bytes=None
 ):
     prompt = shorten_too_long_text(prompt)
     save_path = shorten_too_long_text(save_path)
@@ -408,7 +472,11 @@ def get_image_or_style_transfer_upload_to_cloud_storage(
     if check_if_blob_exists(save_path):
         return f"https://{BUCKET_NAME}/{BUCKET_PATH}/{save_path}"
     with torch.inference_mode():
-        bio = style_transfer_image_from_prompt(prompt, image_url, strength, canny)
+        if image_bytes:
+            input_image = Image.open(BytesIO(image_bytes))
+            bio = style_transfer_image_from_prompt(prompt, image_url, strength, canny, input_pil=input_image)
+        else:
+            bio = style_transfer_image_from_prompt(prompt, image_url, strength, canny)
     if bio is None:
         return None  # error thrown in pool
     link = upload_to_bucket(save_path, bio, is_bytesio=True)
@@ -456,13 +524,15 @@ def is_defined(thing):
         return thing is not None
 
 def style_transfer_image_from_prompt(
-    prompt, image_url: str, strength=0.6, canny=False, input_pil=None
+    prompt, image_url: str | Image.Image, strength=0.6, canny=False, input_pil=None, retries=3,
 ):
     prompt = shorten_too_long_text(prompt)
     # image = pipe(guidance_scale=7,prompt=prompt).images[0]
 
     if not is_defined(input_pil):
         input_pil = load_image(image_url).convert("RGB")
+    #resize to nice size
+    input_pil = process_image_for_stable_diffusion(input_pil)
 
     canny_image = None
     if canny:
@@ -600,11 +670,11 @@ def style_transfer_image_from_prompt(
         # revert scheduler
         img2img.scheduler = lcm_scheduler
     if detect_too_bumpy(image):
-        if prompt.endswith(" detail detail"):
+        if retries <= 0:
             raise Exception("image too bumpy, retrying failed") # todo fix and just accept it?
         logger.info("image too bumpy, retrying once w different prompt detailed")
         return style_transfer_image_from_prompt(
-            prompt + " detail", image_url, strength, canny, input_pil
+            prompt + " detail", image_url, strength - 0.01, canny, input_pil, retries - 1
         )
 
     return image_to_bytes(image)
@@ -617,7 +687,7 @@ def style_transfer_image_from_prompt(
 #     return processes_pool.apply_async(create_image_from_prompt, args=(prompt,), ).wait()
 
 
-def create_image_from_prompt(prompt, width, height, n_steps=5, extra_args={}):
+def create_image_from_prompt(prompt, width, height, n_steps=5, extra_args={}, retries=3):
     # round width and height down to multiple of 64
     block_width = width - (width % 64)
     block_height = height - (height % 64)
@@ -747,11 +817,11 @@ def create_image_from_prompt(prompt, width, height, n_steps=5, extra_args={}):
         f.write(f"{current_time}")
 
     if detect_too_bumpy(image):
-        if prompt.endswith(" detail detail"):
+        if retries <= 0:
             raise Exception("image too bumpy, retrying failed") # todo fix and just accept it?
         logger.info("image too bumpy, retrying once w different prompt detailed")
         return create_image_from_prompt(
-            prompt + " detail", width, height, n_steps, extra_args
+            prompt + " detail", width, height, n_steps + 1, extra_args, retries - 1
         )
     return image_to_bytes(image)
 

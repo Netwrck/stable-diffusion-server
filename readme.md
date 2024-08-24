@@ -1,43 +1,52 @@
-simple stable diffusion server that saves images to cloud storage - returns links to google cloud storage
+# Simple Stable Diffusion Server
 
-## Shameless Plug from Maintainers
-[![netwrck logo](https://static.netwrck.com/static/img/netwrck-logo-colord256.png)](https://netwrck.com)
-[![eBank logo](https://static.netwrck.com/static/img/ebank-logo-removebg-full387.png)](https://aiart-generator.art)
+<img src="https://static.netwrck.com/static/uploads/aiartstation-art-server-logo-minimalist-artistic-computer-stable-diffusion-art-server-company-confident-engaging-wow-3.webp" alt="Stable Diffusion Server Logo" width="256">
 
-Checkout [Voiced AI Characters to chat with](https://netwrck.com) at [netwrck.com](https://netwrck.com)
+Welcome to Simple Stable Diffusion Server, your go-to solution for AI-powered image generation and manipulation!
 
-Characters are narrated and written by many GPT models trained on 1000s of fantasy novels and chats.
+## Features
 
-For Vision LLMs for making Text - Checkout [Text-Generator.io](https://text-generator.io) for a Open Source text generator that uses many AI models to generate the best along with image understanding and OCR networks.
+- **Local Deployment**: Run locally for style transfer, art generation and inpainting.
+- **Production Mode**: Save images to cloud storage and retrieve links to Google Cloud Storage.
+- **Versatile Applications**: Perfect for AI art generation, style transfer, and image inpainting. Bring any SDXL/diffusers model.
+- **Easy to Use**: Simple interface for generating images in Gradio locally and easy to use FastAPI docs/server for advanced users.
 
-For AI Art Generation checkout [AI Art Generator and Search Engine](https://aiart-generator.art)
+For a hosted AI Art Generation experience, check out our [AI Art Generator and Search Engine](https://aiart-generator.art), which offers advanced features like video creation and 2K upscaled images.
 
-## Setup
+## Quick Start
 
-. Create a virtual environment (optional)
+### Setup
 
+1. Create a virtual environment (optional):
 ```bash
 python3 -m venv venv
 source venv/bin/activate
 ```
 
-#### Install dependencies
-
+2. Install dependencies:
 ```bash
 pip install -r requirements.txt
 pip install -r dev-requirements.txt
+```
 
+3. Clone necessary models (or point to your own SDXL models in main.py)
+```bash
 cd models
-git clone https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0
-git clone https://huggingface.co/segmind/SSD-1B
-git clone https://huggingface.co/latent-consistency/lcm-ssd-1b 
+git clone git@hf.co:/stabilityai/stable-diffusion-xl-base-1.0
+git clone git@hf.co:/dataautogpt3/ProteusV0.2
 
-# install stopwords
+# Optional for line based style transfer
+git clone git@hf.co:/diffusers/controlnet-canny-sdxl-1.0
+```
+
+4. Install NLTK stopwords:
+```bash
 python -c "import nltk; nltk.download('stopwords')"
 ```
 
-#### Run the gradio UI
+### Running the Gradio UI
 
+Launch the user-friendly Gradio interface:
 ```
 python gradio_ui.py
 ```
@@ -57,10 +66,8 @@ Images generated will be stored in your bucket
 ```bash
 GOOGLE_APPLICATION_CREDENTIALS=secrets/google-credentials.json gunicorn  -k uvicorn.workers.UvicornWorker -b :8000 main:app --timeout 600 -w 1 
 ```
-
 with max 4 requests at a time
 This will drop a lot of requests under load instead of taking on too much work and causing OOM Errors.
-
 ```bash
 GOOGLE_APPLICATION_CREDENTIALS=secrets/google-credentials.json PYTHONPATH=. uvicorn --port 8000 --timeout-keep-alive 600 --workers 1 --backlog 1 --limit-concurrency 4 main:app
 ```
@@ -99,7 +106,7 @@ apt-get install -y supervisor
 sudo cat >/etc/supervisor/conf.d/python-app.conf << EOF
 [program:sdif_http_server]
 directory=/home/lee/code/sdif
-command=/home/lee/code/sdif/.env/bin/uvicorn --port 8000 --timeout-keep-alive 600 --workers 1 --backlog 1 --limit-concurrency 4 main:app
+command=/home/lee/code/sdif/.env/bin/uvicorn --port 8000 --timeout-keep-alive 12 --workers 1 --backlog 1 --limit-concurrency 2 main:app
 autostart=true
 autorestart=true
 environment=VIRTUAL_ENV="/home/lee/code/sdif/.env/",PATH="/opt/app/sdif/.env/bin",HOME="/home/lee",GOOGLE_APPLICATION_CREDENTIALS="secrets/google-credentials.json",PYTHONPATH="/home/lee/code/sdif"
@@ -108,8 +115,8 @@ stderr_logfile=syslog
 user=lee
 EOF
 
-supervisorctl reread
-supervisorctl update
+sudo supervisorctl reread
+sudo supervisorctl update
 ```
 
 #### run a manager process to kill/restart if the server if it is hanging
@@ -126,3 +133,25 @@ run the server in a infinite loop
 ```
 while true; do GOOGLE_APPLICATION_CREDENTIALS=secrets/google-credentials.json PYTHONPATH=. uvicorn --port 8000 --timeout-keep-alive 600 --workers 1 --backlog 1 --limit-concurrency 4 main:app; done
 ```
+
+# windows setup
+
+py -3.11 -m venv .wvenv
+. .wvenv/Scripts/activate
+python -m pip install -r requirements.txt
+
+# contributing guidelines
+Please help in any way.
+
+
+## Shameless Plug from Maintainers
+[![netwrck logo](https://static.netwrck.com/static/img/netwrck-logo-colord256.png)](https://netwrck.com)
+[![eBank logo](https://static.netwrck.com/static/img/ebank-logo-removebg-full387.png)](https://aiart-generator.art)
+
+Checkout [Voiced AI Characters to chat with](https://netwrck.com) at [netwrck.com](https://netwrck.com)
+
+Characters are narrated and written by many GPT models trained on 1000s of fantasy novels and chats.
+
+For Vision LLMs for making Text - Checkout [Text-Generator.io](https://text-generator.io) for a Open 
+Source text generator that uses many AI models to generate the best along with image understanding and 
+OCR networks.
