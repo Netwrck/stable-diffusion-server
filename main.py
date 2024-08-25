@@ -94,6 +94,40 @@ else:
     pipe.load_lora_weights("latent-consistency/lcm-lora-sdxl", adapter_name="lcm")
 pipe.set_adapters(["lcm"], adapter_weights=[1.0])
 
+
+#quantizing
+from optimum.quanto import freeze, qfloat8, quantize
+
+print(pipe.components)
+# # Quantize and freeze the text_encoder
+text_encoder = pipe.text_encoder
+quantize(text_encoder, weights=qfloat8)
+freeze(text_encoder)
+pipe.text_encoder = text_encoder
+
+# Quantize and freeze the text_encoder_2
+text_encoder_2 = pipe.text_encoder_2
+quantize(text_encoder_2, weights=qfloat8)
+freeze(text_encoder_2)
+pipe.text_encoder_2 = text_encoder_2
+
+
+# Quantize and freeze the text_encoder_2
+text_encoder_3 = pipe.text_encoder_3
+quantize(text_encoder_3, weights=qfloat8)
+freeze(text_encoder_3)
+pipe.text_encoder_3 = text_encoder_3
+
+
+# move unet too
+
+unet = pipe.unet
+quantize(unet, weights=qfloat8)
+freeze(unet)
+pipe.unet = unet
+
+pipe.enable_model_cpu_offload()
+
 # mem efficient
 pipe.enable_attention_slicing()
 pipe.enable_vae_slicing()
@@ -109,6 +143,25 @@ img2img = StableDiffusionXLImg2ImgPipeline(
     **all_components,
 )
 img2img.watermark = None
+
+
+# mem efficient
+img2img.enable_attention_slicing()
+img2img.enable_vae_slicing()
+img2img.enable_model_cpu_offload()
+
+# # Quantize and freeze the text_encoder
+# text_encoder = img2img.text_encoder
+# quantize(text_encoder, weights=qfloat8)
+# freeze(text_encoder)
+# img2img.text_encoder = text_encoder
+
+# # Quantize and freeze the text_encoder_2
+# text_encoder_2 = img2img.text_encoder_2
+# quantize(text_encoder_2, weights=qfloat8)
+# freeze(text_encoder_2)
+# img2img.text_encoder_2 = text_encoder_2
+
 # pipe = DiffusionPipeline.from_pretrained(
 #     "models/stable-diffusion-xl-base-1.0",
 #     torch_dtype=torch.float16,
@@ -153,8 +206,8 @@ refiner = DiffusionPipeline.from_pretrained(
 # refiner.schedu
 
 refiner.watermark = None
-refiner.to("cuda")
-
+# refiner.to("cuda")
+refiner.enable_model_cpu_offload()
 # {'scheduler', 'text_encoder', 'text_encoder_2', 'tokenizer', 'tokenizer_2', 'unet', 'vae'} can be passed in from existing model
 # inpaintpipe = StableDiffusionInpaintPipeline(**pipe.components)
 print('cnet')
@@ -181,6 +234,8 @@ controlnet = ControlNetModel.from_pretrained(
     "diffusers/controlnet-canny-sdxl-1.0", torch_dtype=torch.float16, variant="fp16",
 )
 controlnet.to("cuda")
+# controlnet.enable_model_cpu_offload()
+
 controlnetpipe = StableDiffusionXLControlNetPipeline.from_pretrained(
     # "stabilityai/stable-diffusion-xl-base-1.0",
     model_name,
@@ -188,6 +243,29 @@ controlnetpipe = StableDiffusionXLControlNetPipeline.from_pretrained(
 )
 controlnetpipe.to("cuda")
 controlnetpipe.watermark = None
+
+#efficiency
+controlnetpipe.enable_model_cpu_offload()
+controlnetpipe.enable_attention_slicing()
+controlnetpipe.enable_vae_slicing()
+
+# # Quantize and freeze the text_encoder
+# text_encoderz = controlnetpipe.text_encoder
+# quantize(text_encoderz, weights=qfloat8)
+# freeze(text_encoderz)
+# controlnetpipe.text_encoder = text_encoderz
+
+# # Quantize and freeze the text_encoder_2
+# text_encoder_2z = controlnetpipe.text_encoder_2
+# quantize(text_encoder_2z, weights=qfloat8)
+# freeze(text_encoder_2z)
+# controlnetpipe.text_encoder_2 = text_encoder_2z
+
+# unet = controlnetpipe.unet
+# quantize(unet, weights=qfloat8)
+# freeze(unet)
+# controlnetpipe.unet = unet
+
 
 # # switch out to save gpu mem
 # del inpaintpipe.vae
