@@ -29,6 +29,7 @@ from diffusers import (
     StableDiffusionXLImg2ImgPipeline,
     ControlNetModel,
     StableDiffusionXLControlNetPipeline,
+    AutoPipelineForImage2Image,
 )
 from diffusers.utils import load_image
 from fastapi import FastAPI
@@ -44,9 +45,11 @@ from stable_diffusion_server.bucket_api import check_if_blob_exists, upload_to_b
 from stable_diffusion_server.bumpy_detection import detect_too_bumpy
 from stable_diffusion_server.image_processing import process_image_for_stable_diffusion
 from stable_diffusion_server.utils import log_time
+
 try:
     import pillow_avif
-    assert pillow_avif # required to use avif
+
+    assert pillow_avif  # required to use avif
 except Exception as e:
     logger.error(f"Error importing pillow_avif: {e}")
 
@@ -87,42 +90,45 @@ else:
 pipe.set_adapters(["lcm"], adapter_weights=[1.0])
 
 
-#quantizing
+# quantizing
 from optimum.quanto import freeze, qfloat8, quantize
 
-print(pipe.components)
-# # Quantize and freeze the text_encoder
-text_encoder = pipe.text_encoder
-quantize(text_encoder, weights=qfloat8)
-freeze(text_encoder)
-pipe.text_encoder = text_encoder
+# print(pipe.components)
+# # # Quantize and freeze the text_encoder
+# text_encoder = pipe.text_encoder
+# quantize(text_encoder, weights=qfloat8)
+# freeze(text_encoder)
+# pipe.text_encoder = text_encoder
+#
+# # Quantize and freeze the text_encoder_2
+# text_encoder_2 = pipe.text_encoder_2
+# quantize(text_encoder_2, weights=qfloat8)
+# freeze(text_encoder_2)
+# pipe.text_encoder_2 = text_encoder_2
+
 
 # Quantize and freeze the text_encoder_2
-text_encoder_2 = pipe.text_encoder_2
-quantize(text_encoder_2, weights=qfloat8)
-freeze(text_encoder_2)
-pipe.text_encoder_2 = text_encoder_2
-
-
-# Quantize and freeze the text_encoder_2
-text_encoder_3 = pipe.text_encoder_3
-quantize(text_encoder_3, weights=qfloat8)
-freeze(text_encoder_3)
-pipe.text_encoder_3 = text_encoder_3
+# text_encoder_3 = pipe.text_encoder_3
+# quantize(text_encoder_3, weights=qfloat8)
+# freeze(text_encoder_3)
+# pipe.text_encoder_3 = text_encoder_3
 
 
 # move unet too
 
-unet = pipe.unet
-quantize(unet, weights=qfloat8)
-freeze(unet)
-pipe.unet = unet
+# unet = pipe.unet
+# quantize(unet, weights=qfloat8)
+# freeze(unet)
+# pipe.unet = unet
 
 pipe.enable_model_cpu_offload()
+pipe.enable_sequential_cpu_offload()
 
 # mem efficient
 pipe.enable_attention_slicing()
 pipe.enable_vae_slicing()
+
+# pipe.to("cuda")
 
 all_components = pipe.components
 # all_components.pop("scheduler")
@@ -131,16 +137,17 @@ all_components = pipe.components
 # all_components.pop("tokenizer")
 # all_components.pop("tokenizer_2")
 
-img2img = StableDiffusionXLImg2ImgPipeline(
-    **all_components,
-)
+img2img = AutoPipelineForImage2Image.from_pipe(pipe)
 img2img.watermark = None
 
 
 # mem efficient
 img2img.enable_attention_slicing()
 img2img.enable_vae_slicing()
+# img2img.to("cuda")
+# img2img.enable_xformers_memory_efficient_attention()
 img2img.enable_model_cpu_offload()
+img2img.enable_sequential_cpu_offload()
 
 # # Quantize and freeze the text_encoder
 # text_encoder = img2img.text_encoder
@@ -163,7 +170,6 @@ img2img.enable_model_cpu_offload()
 # )  # todo try torch_dtype=float16
 pipe.watermark = None
 
-pipe.to("cuda")
 
 # deepcache
 # from DeepCache import DeepCacheSDHelper
@@ -200,6 +206,8 @@ refiner = DiffusionPipeline.from_pretrained(
 refiner.watermark = None
 # refiner.to("cuda")
 refiner.enable_model_cpu_offload()
+refiner.enable_sequential_cpu_offload()
+
 # {'scheduler', 'text_encoder', 'text_encoder_2', 'tokenizer', 'tokenizer_2', 'unet', 'vae'} can be passed in from existing model
 # inpaintpipe = StableDiffusionInpaintPipeline(**pipe.components)
 inpaintpipe = StableDiffusionXLInpaintPipeline.from_pretrained(
@@ -218,24 +226,29 @@ inpaintpipe = StableDiffusionXLInpaintPipeline.from_pretrained(
     # load_connected_pipeline=
 )
 inpaintpipe.watermark = None
+# inpaintpipe.enable_model_cpu_offload()
 
 controlnet_conditioning_scale = 0.5  # recommended for good generalization
 controlnet = ControlNetModel.from_pretrained(
-    "diffusers/controlnet-canny-sdxl-1.0", torch_dtype=torch.float16, variant="fp16",
+    "diffusers/controlnet-canny-sdxl-1.0",
+    torch_dtype=torch.float16,
+    variant="fp16",
 )
-controlnet.to("cuda")
-# controlnet.enable_model_cpu_offload()
+# controlnet.to("cuda")
 
 controlnetpipe = StableDiffusionXLControlNetPipeline.from_pretrained(
     # "stabilityai/stable-diffusion-xl-base-1.0",
     model_name,
-    controlnet=controlnet, **pipe.components
+    controlnet=controlnet,
+    **pipe.components,
 )
-controlnetpipe.to("cuda")
+# controlnetpipe.to("cuda")
 controlnetpipe.watermark = None
 
-#efficiency
+# efficiency
 controlnetpipe.enable_model_cpu_offload()
+controlnetpipe.enable_sequential_cpu_offload()
+
 controlnetpipe.enable_attention_slicing()
 controlnetpipe.enable_vae_slicing()
 
@@ -283,7 +296,7 @@ controlnetpipe.enable_vae_slicing()
 #     tokenizer_2=pipe.tokenizer_2,
 #     requires_aesthetics_score=False,
 # )
-inpaintpipe.to("cuda")
+# inpaintpipe.to("cuda")
 inpaintpipe.watermark = None
 # inpaintpipe.register_to_config(requires_aesthetics_score=False)
 
@@ -329,7 +342,7 @@ inpaint_refiner = StableDiffusionXLInpaintPipeline.from_pretrained(
 #     unet=refiner.unet,
 #     requires_aesthetics_score=False,
 # )
-inpaint_refiner.to("cuda")
+# inpaint_refiner.to("cuda")
 inpaint_refiner.watermark = None
 # inpaint_refiner.register_to_config(requires_aesthetics_score=False)
 
@@ -342,7 +355,8 @@ use_refiner = False
 # efficiency
 
 # inpaintpipe.enable_model_cpu_offload()
-# inpaint_refiner.enable_model_cpu_offload()
+inpaint_refiner.enable_model_cpu_offload()
+inpaint_refiner.enable_sequential_cpu_offload()
 # pipe.enable_model_cpu_offload()
 # refiner.enable_model_cpu_offload()
 # img2img.enable_model_cpu_offload()
@@ -376,7 +390,7 @@ use_refiner = False
 # pipe.enable_xformers_memory_efficient_attention()
 
 
-# pipe.unet = torch.compile(pipe.unet, mode="reduce-overhead", fullgraph=True)
+# pipe.unet = torch.compile(pipe.unet, mode="reduce-overhead", fullgraph=True, backend="eager")
 # this can cause errors on some inputs so consider disabling it
 # pipe.unet = torch.compile(pipe.unet)
 # refiner.unet = torch.compile(refiner.unet)#, mode="reduce-overhead", fullgraph=True)
@@ -385,6 +399,9 @@ inpaintpipe.unet = pipe.unet
 inpaint_refiner.unet = refiner.unet
 # inpaintpipe.unet = torch.compile(inpaintpipe.unet)
 # inpaint_refiner.unet = torch.compile(inpaint_refiner.unet)
+
+# img2img.unet = pipe.unet
+# img2img.unet = torch.compile(img2img.unet, mode="reduce-overhead", fullgraph=True, backend="eager")
 
 app = FastAPI(
     # openapi_url="/static/openapi.json",
@@ -469,6 +486,7 @@ async def style_transfer_and_upload_image(
     strength: float = 0.6,
     canny: bool = False,
 ):
+    canny=True # tmp only canny is working
     # todo also accept image bytes directly?
     path_components = save_path.split("/")[0:-1]
     final_name = save_path.split("/")[-1]
@@ -480,7 +498,9 @@ async def style_transfer_and_upload_image(
     )
     return JSONResponse({"path": path})
 
+
 from fastapi import File, UploadFile
+
 
 @app.post("/style_transfer_bytes_and_upload_image")
 async def style_transfer_bytes_and_upload_image(
@@ -488,22 +508,24 @@ async def style_transfer_bytes_and_upload_image(
     image_url: str = None,
     save_path: str = "",
     strength: float = 0.6,
-    canny: str = 'true',
-    image_file: UploadFile = File(None)
+    canny: str = "true",
+    image_file: UploadFile = File(None),
 ):
+
     uuid_str = str(uuid.uuid4())[:7]
     path_components = save_path.split("/")[0:-1]
     final_name = save_path.split("/")[-1]
-    if canny == 'true':
+    if canny == "true":
         canny_bool = True
     else:
         canny_bool = False
+    canny_bool=True # tmp only canny is working
 
     if not path_components:
         path_components = []
     # Add UUID before the file extension
-    if '.' in final_name:
-        name_parts = final_name.rsplit('.', 1)
+    if "." in final_name:
+        name_parts = final_name.rsplit(".", 1)
         final_name = f"{name_parts[0]}_{uuid_str}.{name_parts[1]}"
     else:
         final_name = f"{final_name}_{uuid_str}"
@@ -517,7 +539,10 @@ async def style_transfer_bytes_and_upload_image(
             prompt, image_url, save_path, strength, canny_bool
         )
     else:
-        return JSONResponse({"error": "Either image_url or image_file must be provided"}, status_code=400)
+        return JSONResponse(
+            {"error": "Either image_url or image_file must be provided"},
+            status_code=400,
+        )
 
     path = get_image_or_style_transfer_upload_to_cloud_storage(
         prompt, image_url, save_path, strength, canny_bool, image_bytes
@@ -526,7 +551,12 @@ async def style_transfer_bytes_and_upload_image(
 
 
 def get_image_or_style_transfer_upload_to_cloud_storage(
-    prompt: str, image_url: str, save_path: str, strength=0.6, canny=False, image_bytes=None
+    prompt: str,
+    image_url: str,
+    save_path: str,
+    strength=0.6,
+    canny=False,
+    image_bytes=None,
 ):
     prompt = shorten_too_long_text(prompt)
     save_path = shorten_too_long_text(save_path)
@@ -536,7 +566,9 @@ def get_image_or_style_transfer_upload_to_cloud_storage(
     with torch.inference_mode():
         if image_bytes:
             input_image = Image.open(BytesIO(image_bytes))
-            bio = style_transfer_image_from_prompt(prompt, image_url, strength, canny, input_pil=input_image)
+            bio = style_transfer_image_from_prompt(
+                prompt, image_url, strength, canny, input_pil=input_image
+            )
         else:
             bio = style_transfer_image_from_prompt(prompt, image_url, strength, canny)
     if bio is None:
@@ -585,17 +617,22 @@ def is_defined(thing):
     else:
         return thing is not None
 
+
 def style_transfer_image_from_prompt(
-    prompt, image_url: str | Image.Image, strength=0.6, canny=False, input_pil=None, retries=3,
+    prompt,
+    image_url: str | Image.Image,
+    strength=0.6,
+    canny=False,
+    input_pil=None,
+    retries=3,
 ):
     prompt = shorten_too_long_text(prompt)
     # image = pipe(guidance_scale=7,prompt=prompt).images[0]
 
     if not is_defined(input_pil):
         input_pil = load_image(image_url).convert("RGB")
-    #resize to nice size
+    # resize to nice size
     input_pil = process_image_for_stable_diffusion(input_pil)
-
     canny_image = None
     if canny:
         with log_time("canny"):
@@ -733,10 +770,17 @@ def style_transfer_image_from_prompt(
         img2img.scheduler = lcm_scheduler
     if detect_too_bumpy(image):
         if retries <= 0:
-            raise Exception("image too bumpy, retrying failed") # todo fix and just accept it?
+            raise Exception(
+                "image too bumpy, retrying failed"
+            )  # todo fix and just accept it?
         logger.info("image too bumpy, retrying once w different prompt detailed")
         return style_transfer_image_from_prompt(
-            prompt + " detail", image_url, strength - 0.01, canny, input_pil, retries - 1
+            prompt + " detail",
+            image_url,
+            strength - 0.01,
+            canny,
+            input_pil,
+            retries - 1,
         )
 
     return image_to_bytes(image)
@@ -749,7 +793,9 @@ def style_transfer_image_from_prompt(
 #     return processes_pool.apply_async(create_image_from_prompt, args=(prompt,), ).wait()
 
 
-def create_image_from_prompt(prompt, width, height, n_steps=5, extra_args={}, retries=3):
+def create_image_from_prompt(
+    prompt, width, height, n_steps=5, extra_args={}, retries=3
+):
     # round width and height down to multiple of 64
     block_width = width - (width % 64)
     block_height = height - (height % 64)
@@ -880,7 +926,9 @@ def create_image_from_prompt(prompt, width, height, n_steps=5, extra_args={}, re
 
     if detect_too_bumpy(image):
         if retries <= 0:
-            raise Exception("image too bumpy, retrying failed") # todo fix and just accept it?
+            raise Exception(
+                "image too bumpy, retrying failed"
+            )  # todo fix and just accept it?
         logger.info("image too bumpy, retrying once w different prompt detailed")
         return create_image_from_prompt(
             prompt + " detail", width, height, n_steps + 1, extra_args, retries - 1
@@ -895,6 +943,7 @@ def image_to_bytes(image):
     if bright_count == 0:
         # we have a black image, this is an error likely we need a restart
         logger.info("restarting server to fix cuda issues (device side asserts)")
+        logger.info("all black image")
         #     # todo fix device side asserts instead of restart to fix
         #     # todo only restart the correct gunicorn
         # this could be really annoying if your running other gunicorns on your machine which also get restarted
