@@ -19,14 +19,15 @@ For a hosted AI Art Generation experience, check out our [AI Art Generator and S
 
 1. Create a virtual environment (optional):
 ```bash
-python3 -m venv venv
-source venv/bin/activate
+pip install uv
+uv venv
+source .venv/bin/activate
 ```
 
 2. Install dependencies:
 ```bash
-pip install -r requirements.txt
-pip install -r dev-requirements.txt
+uv pip install -r requirements.txt
+uv pip install -r dev-requirements.txt
 ```
 
 3. Clone necessary models (or point to your own SDXL models in main.py)
@@ -138,7 +139,8 @@ while true; do GOOGLE_APPLICATION_CREDENTIALS=secrets/google-credentials.json PY
 
 py -3.11 -m venv .wvenv
 . .wvenv/Scripts/activate
-python -m pip install -r requirements.txt
+python -m pip install uv
+python -m uv pip install -r requirements.txt
 
 # contributing guidelines
 Please help in any way.
