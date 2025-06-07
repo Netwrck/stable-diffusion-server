@@ -62,7 +62,7 @@ cycler==0.12.1
     # via matplotlib
 deepcache==0.1.1
     # via -r requirements.in
-diffusers==0.31.0
+diffusers==0.33.1
     # via
     #   -r requirements.in
     #   deepcache
