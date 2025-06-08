@@ -9,3 +9,4 @@ ipython
 
 line-profiler-pycharm==1.1.0
 line-profiler==4.0.3
+flake8

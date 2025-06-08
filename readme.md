@@ -142,6 +142,14 @@ py -3.11 -m venv .wvenv
 python -m pip install uv
 python -m uv pip install -r requirements.txt
 
+# Deployment with GitHub Actions
+
+This repository includes a workflow that builds Docker images for **RunPod**
+and **Google Cloud Run**. Dependencies are installed with `uv pip` and the
+workflow caches build layers for faster rebuilds. The workflow can be found in
+`.github/workflows/docker-build.yml`. See [docs/deployment.md](docs/deployment.md)
+for details on how to use the images.
+
 # contributing guidelines
 Please help in any way.
 
