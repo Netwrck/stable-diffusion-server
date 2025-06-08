@@ -1,0 +1,10 @@
+repos:
+  - repo: https://github.com/pycqa/flake8
+    rev: 6.1.0
+    hooks:
+      - id: flake8
+  - repo: https://github.com/pytest-dev/pytest
+    rev: 8.2.0
+    hooks:
+      - id: pytest
+        additional_dependencies: []
