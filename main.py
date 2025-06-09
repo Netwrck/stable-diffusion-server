@@ -30,6 +30,7 @@ from diffusers import (
     ControlNetModel,
     StableDiffusionXLControlNetPipeline,
     AutoPipelineForImage2Image,
+    FluxPipeline,
 )
 from diffusers.utils import load_image
 from fastapi import FastAPI
@@ -39,8 +40,14 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import FileResponse
 from starlette.responses import JSONResponse
 from transformers import set_seed
+from cachetools import TTLCache
 
-from env import BUCKET_PATH, BUCKET_NAME
+from env import (
+    BUCKET_PATH,
+    BUCKET_NAME,
+    FLUX_MODEL_NAME,
+    ENABLE_FLUX_PIPELINE,
+)
 from stable_diffusion_server.bucket_api import check_if_blob_exists, upload_to_bucket
 from stable_diffusion_server.bumpy_detection import detect_too_bumpy
 from stable_diffusion_server.image_processing import process_image_for_stable_diffusion
@@ -182,6 +189,27 @@ pipe.watermark = None
 # helper.enable()
 # token merging
 # tomesd.apply_patch(pipe, ratio=0.2)  # light speedup
+
+# Flux text-to-image pipeline for experimental usage
+flux_pipe = None
+if ENABLE_FLUX_PIPELINE:
+    try:
+        flux_pipe = FluxPipeline.from_pretrained(
+            FLUX_MODEL_NAME,
+            torch_dtype=torch.float16,
+        )
+        flux_pipe.enable_model_cpu_offload()
+        flux_pipe.enable_attention_slicing()
+        flux_pipe.enable_vae_slicing()
+        flux_pipe.watermark = None
+    except Exception as e:
+        logger.error(f"Failed to load Flux model: {e}")
+        flux_pipe = None
+else:
+    logger.info("Flux pipeline disabled via environment variable")
+
+# Cache to avoid repeatedly generating identical Flux images.
+_flux_cache = TTLCache(maxsize=64, ttl=300)
 
 
 refiner = DiffusionPipeline.from_pretrained(
@@ -468,6 +496,26 @@ async def create_and_upload_image(
     return JSONResponse({"path": path})
 
 
+@app.get("/flux_create_and_upload_image")
+async def flux_create_and_upload_image(prompt: str, save_path: str = ""):
+    """Generate an image using the Flux pipeline and upload it."""
+    path_components = save_path.split("/")[0:-1]
+    final_name = save_path.split("/")[-1]
+    if not path_components:
+        path_components = []
+    save_path = "/".join(path_components) + quote_plus(final_name)
+    path = get_flux_image_or_upload(prompt, save_path)
+    return JSONResponse({"path": path})
+
+
+@app.get("/flux_health")
+async def flux_health():
+    """Simple health check for the Flux pipeline."""
+    if flux_pipe is None:
+        return JSONResponse({"status": "unavailable"}, status_code=503)
+    return JSONResponse({"status": "ok"})
+
+
 @app.get("/inpaint_and_upload_image")
 async def inpaint_and_upload_image(
     prompt: str, image_url: str, mask_url: str, save_path: str = ""
@@ -578,6 +626,22 @@ def get_image_or_style_transfer_upload_to_cloud_storage(
             bio = style_transfer_image_from_prompt(prompt, image_url, strength, canny)
     if bio is None:
         return None  # error thrown in pool
+    link = upload_to_bucket(save_path, bio, is_bytesio=True)
+    return link
+
+
+def get_flux_image_or_upload(prompt: str, save_path: str):
+    """Return cached Flux image URL or generate and upload a new one."""
+    prompt = shorten_too_long_text(prompt)
+    save_path = shorten_too_long_text(save_path)
+    if check_if_blob_exists(save_path):
+        return f"https://{BUCKET_NAME}/{BUCKET_PATH}/{save_path}"
+    if flux_pipe is None:
+        raise RuntimeError("Flux pipeline unavailable")
+    with torch.inference_mode():
+        bio = create_flux_image_from_prompt(prompt)
+    if bio is None:
+        return None
     link = upload_to_bucket(save_path, bio, is_bytesio=True)
     return link
 
@@ -1065,6 +1129,24 @@ def inpaint_image_from_prompt(prompt, image_url: str, mask_url: str):
         current_time = datetime.now().strftime("%H:%M:%S")
         f.write(f"{current_time}")
     return image_to_bytes(image)
+
+
+def create_flux_image_from_prompt(prompt: str, n_steps: int = 4) -> bytes:
+    """Generate an image with the Flux pipeline and return it as bytes."""
+    if flux_pipe is None:
+        raise RuntimeError("Flux pipeline unavailable")
+    prompt = shorten_too_long_text(prompt)
+    key = (prompt, n_steps)
+    if key in _flux_cache:
+        return _flux_cache[key]
+    image = flux_pipe(
+        prompt=prompt,
+        num_inference_steps=n_steps,
+        guidance_scale=0.0,
+    ).images[0]
+    result = image_to_bytes(image)
+    _flux_cache[key] = result
+    return result
 
 
 def shorten_too_long_text(prompt):
