@@ -30,11 +30,12 @@ def test_detect_too_bumpy():
 
     # run over every img in outputs dir
     outputs_dir = (current_dir).parent / "outputs"
-    for file in outputs_dir.iterdir():
-        if file.is_file():
-            image = Image.open(file)
-            is_bumpy = detect_too_bumpy(image)
-            assert not is_bumpy
+    if outputs_dir.exists():
+        for file in outputs_dir.iterdir():
+            if file.is_file():
+                image = Image.open(file)
+                is_bumpy = detect_too_bumpy(image)
+                assert not is_bumpy
 
     # run over every dir in tests/data/bugs dir
     bugs_dir = current_dir / "data/bugs"

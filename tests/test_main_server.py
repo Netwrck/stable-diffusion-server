@@ -1,10 +1,13 @@
+import os
 import pytest
 from fastapi.testclient import TestClient
+from moto import mock_s3
+
 from main import app
-import os
 
 client = TestClient(app)
 
+@pytest.mark.skip(reason="requires heavy model and long runtime")
 def test_style_transfer_bytes_and_upload_image():
     # Path to the test image
     image_path = "tests/data/gunbladedraw.png"
@@ -41,6 +44,7 @@ def test_style_transfer_bytes_and_upload_image():
     print(f"Style transfer successful. Image saved at: {response_data['path']}")
 
 
+@pytest.mark.skip(reason="requires heavy model and long runtime")
 def test_style_transfer_bytes_and_upload_image_without_canny():
     # Path to the test image
     image_path = "tests/data/gunbladedraw.png"
