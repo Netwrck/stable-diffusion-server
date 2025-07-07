@@ -11,6 +11,7 @@ Welcome to Simple Stable Diffusion Server, your go-to solution for AI-powered im
   to an R2 bucket via the S3 API, but Google Cloud Storage remains supported.
 - **Versatile Applications**: Perfect for AI art generation, style transfer, and image inpainting. Bring any SDXL/diffusers model.
 - **Easy to Use**: Simple interface for generating images in Gradio locally and easy to use FastAPI docs/server for advanced users.
+- **Prompt Utilities**: Helper functions for trimming and cleaning prompts live in `stable_diffusion_server/prompt_utils.py`.
 
 For a hosted AI Art Generation experience, check out our [AI Art Generator and Search Engine](https://aiart-generator.art), which offers advanced features like video creation and 2K upscaled images.
 
@@ -52,8 +53,16 @@ Launch the user-friendly Gradio interface:
 ```
 python gradio_ui.py
 ```
-Go to 
+Go to
 http://127.0.0.1:7860
+
+### Flux Schnell Example
+The server now uses the lightweight Flux Schnell model by default. You can quickly
+test the model with the helper script:
+```bash
+python flux_schnell.py
+```
+This will generate `flux-schnell.png` using bf16 precision.
 
 
 ![gradio demo](gradioimg.png)
