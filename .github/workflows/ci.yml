@@ -27,6 +27,6 @@ jobs:
       - name: Lint
         run: |
           flake8
-      - name: Run tests
+      - name: Run unit tests
         run: |
-          pytest -q || true
+          pytest tests/unit -q

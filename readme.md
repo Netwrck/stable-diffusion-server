@@ -7,7 +7,8 @@ Welcome to Simple Stable Diffusion Server, your go-to solution for AI-powered im
 ## Features
 
 - **Local Deployment**: Run locally for style transfer, art generation and inpainting.
-- **Production Mode**: Save images to cloud storage and retrieve links to Google Cloud Storage.
+- **Production Mode**: Save images to cloud storage. By default files are uploaded
+  to an R2 bucket via the S3 API, but Google Cloud Storage remains supported.
 - **Versatile Applications**: Perfect for AI art generation, style transfer, and image inpainting. Bring any SDXL/diffusers model.
 - **Easy to Use**: Simple interface for generating images in Gradio locally and easy to use FastAPI docs/server for advanced users.
 
@@ -59,18 +60,38 @@ http://127.0.0.1:7860
 
 ## Server setup
 #### Edit settings
-#### download your Google cloud credentials to secrets/google-credentials.json
-Images generated will be stored in your bucket
+#### Configure storage credentials
+By default the server uploads to an R2 bucket using S3 compatible credentials.
+Set the following environment variables if you need to customise the backend:
+
+```
+STORAGE_PROVIDER=r2            # or 'gcs'
+BUCKET_NAME=netwrckstatic.netwrck.com
+BUCKET_PATH=static/uploads
+R2_ENDPOINT_URL=https://<account>.r2.cloudflarestorage.com
+PUBLIC_BASE_URL=netwrckstatic.netwrck.com
+```
+
+When using Google Cloud Storage you must also provide the service account
+credentials as shown below.
+
+To upload a file manually you can use the helper script:
+
+```bash
+python scripts/upload_file.py local.png uploads/example.png
+```
 
 #### Run the server
 
 ```bash
-GOOGLE_APPLICATION_CREDENTIALS=secrets/google-credentials.json gunicorn  -k uvicorn.workers.UvicornWorker -b :8000 main:app --timeout 600 -w 1 
+GOOGLE_APPLICATION_CREDENTIALS=secrets/google-credentials.json \
+    gunicorn -k uvicorn.workers.UvicornWorker -b :8000 main:app --timeout 600 -w 1
 ```
 with max 4 requests at a time
 This will drop a lot of requests under load instead of taking on too much work and causing OOM Errors.
 ```bash
-GOOGLE_APPLICATION_CREDENTIALS=secrets/google-credentials.json PYTHONPATH=. uvicorn --port 8000 --timeout-keep-alive 600 --workers 1 --backlog 1 --limit-concurrency 4 main:app
+GOOGLE_APPLICATION_CREDENTIALS=secrets/google-credentials.json \
+    PYTHONPATH=. uvicorn --port 8000 --timeout-keep-alive 600 --workers 1 --backlog 1 --limit-concurrency 4 main:app
 ```
 
 #### Make a Request
@@ -79,7 +100,7 @@ http://localhost:8000/create_and_upload_image?prompt=good%20looking%20elf%20fant
 
 Response
 ```shell
-{"path":"https://storage.googleapis.com/static.netwrck.com/static/uploads/created/elf.png"}
+{"path":"https://netwrckstatic.netwrck.com/static/uploads/created/elf.png"}
 ```
 
 http://localhost:8000/swagger-docs
@@ -87,13 +108,14 @@ http://localhost:8000/swagger-docs
 
 Check to see that "good Looking elf fantasy character" was created
 
-![elf.png](https://storage.googleapis.com/static.netwrck.com/static/uploads/aiamazing-good-looking-elf-fantasy-character-awesome-portrait-2.webp)
+![elf.png](https://netwrckstatic.netwrck.com/static/uploads/aiamazing-good-looking-elf-fantasy-character-awesome-portrait-2.webp)
 ![elf2.png](https://github.com/Netwrck/stable-diffusion-server/assets/2122616/81e86fb7-0419-4003-a67a-21470df225ea)
 
 ### Testing
 
+Run the unit tests with:
 ```bash
-GOOGLE_APPLICATION_CREDENTIALS=secrets/google-credentials.json pytest .
+GOOGLE_APPLICATION_CREDENTIALS=secrets/google-credentials.json pytest tests/unit
 ```
 
 

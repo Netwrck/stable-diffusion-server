@@ -48,6 +48,7 @@ uvicorn
 zipp
 jinja2
 loguru
+boto3
 
 google-api-python-client
 google-api-core #1.31.5

@@ -32,6 +32,12 @@ attrs==24.2.0
     #   referencing
 blinker==1.9.0
     # via streamlit
+boto3==1.39.3
+    # via -r requirements.in
+botocore==1.39.3
+    # via
+    #   boto3
+    #   s3transfer
 cachetools==5.5.0
     # via
     #   -r requirements.in
@@ -222,6 +228,10 @@ jinja2==3.1.4
     #   gradio
     #   pydeck
     #   torch
+jmespath==1.0.1
+    # via
+    #   boto3
+    #   botocore
 joblib==1.4.2
     # via
     #   nltk
@@ -422,6 +432,7 @@ pyparsing==3.2.0
     #   matplotlib
 python-dateutil==2.9.0.post0
     # via
+    #   botocore
     #   google-cloud-bigquery
     #   matplotlib
     #   pandas
@@ -477,6 +488,8 @@ rpds-py==0.21.0
     #   referencing
 rsa==4.9
     # via google-auth
+s3transfer==0.13.0
+    # via boto3
 sacremoses==0.1.1
     # via transformers
 safetensors==0.4.5
@@ -567,6 +580,7 @@ uritemplate==4.1.1
 urllib3==2.2.3
     # via
     #   -r requirements.in
+    #   botocore
     #   requests
 uvicorn==0.32.1
     # via
