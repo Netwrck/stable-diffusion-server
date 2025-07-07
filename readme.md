@@ -113,8 +113,9 @@ Check to see that "good Looking elf fantasy character" was created
 
 ### Testing
 
+Run the unit tests with:
 ```bash
-GOOGLE_APPLICATION_CREDENTIALS=secrets/google-credentials.json pytest .
+GOOGLE_APPLICATION_CREDENTIALS=secrets/google-credentials.json pytest tests/unit
 ```
 
 
