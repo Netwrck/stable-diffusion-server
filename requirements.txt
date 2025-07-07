@@ -57,7 +57,6 @@ click==8.1.7
     # via
     #   -r requirements.in
     #   nltk
-    #   sacremoses
     #   streamlit
     #   uvicorn
 cmake==3.31.1
@@ -233,9 +232,7 @@ jmespath==1.0.1
     #   boto3
     #   botocore
 joblib==1.4.2
-    # via
-    #   nltk
-    #   sacremoses
+    # via nltk
 jsonschema==4.23.0
     # via altair
 jsonschema-specifications==2024.10.1
@@ -467,7 +464,6 @@ regex==2024.11.6
     #   -r requirements.in
     #   diffusers
     #   nltk
-    #   sacremoses
     #   transformers
 requests==2.32.3
     # via
@@ -490,8 +486,6 @@ rsa==4.9
     # via google-auth
 s3transfer==0.13.0
     # via boto3
-sacremoses==0.1.1
-    # via transformers
 safetensors==0.4.5
     # via
     #   -r requirements.in
@@ -499,6 +493,7 @@ safetensors==0.4.5
     #   diffusers
     #   optimum-quanto
     #   peft
+    #   transformers
 semantic-version==2.10.0
     # via gradio
 setuptools==75.6.0
@@ -525,7 +520,7 @@ sympy==1.13.3
     #   torch
 tenacity==9.0.0
     # via streamlit
-tokenizers==0.21.0
+tokenizers==0.15.2
     # via
     #   -r requirements.in
     #   transformers
@@ -551,9 +546,8 @@ tqdm==4.67.1
     #   huggingface-hub
     #   nltk
     #   peft
-    #   sacremoses
     #   transformers
-transformers==4.17.0
+transformers==4.38.0
     # via
     #   -r requirements.in
     #   deepcache

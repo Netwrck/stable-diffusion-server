@@ -30,6 +30,8 @@ from diffusers import (
     ControlNetModel,
     StableDiffusionXLControlNetPipeline,
     AutoPipelineForImage2Image,
+    FluxPipeline,
+    FluxControlNetPipeline,
 )
 from diffusers.utils import load_image
 from fastapi import FastAPI
@@ -45,6 +47,12 @@ from stable_diffusion_server.bucket_api import check_if_blob_exists, upload_to_b
 from stable_diffusion_server.bumpy_detection import detect_too_bumpy
 from stable_diffusion_server.image_processing import process_image_for_stable_diffusion
 from stable_diffusion_server.utils import log_time
+from stable_diffusion_server.prompt_utils import (
+    shorten_too_long_text,
+    shorten_prompt_for_retry,
+    remove_stopwords,
+    stopwords,
+)
 
 try:
     import pillow_avif
@@ -88,6 +96,24 @@ if os.path.exists("models/lcm-lora-sdxl"):
 else:
     pipe.load_lora_weights("latent-consistency/lcm-lora-sdxl", adapter_name="lcm")
 pipe.set_adapters(["lcm"], adapter_weights=[1.0])
+
+# Load Flux Schnell pipeline for efficient text-to-image
+flux_pipe = FluxPipeline.from_pretrained(
+    "black-forest-labs/FLUX.1-schnell", torch_dtype=torch.bfloat16
+)
+flux_pipe.enable_model_cpu_offload()
+
+try:
+    flux_controlnet = ControlNetModel.from_pretrained(
+        "black-forest-labs/flux-controlnet-canny", torch_dtype=torch.bfloat16
+    )
+    flux_controlnetpipe = FluxControlNetPipeline(
+        controlnet=flux_controlnet, **flux_pipe.components
+    )
+    flux_controlnetpipe.enable_model_cpu_offload()
+except Exception as e:
+    logger.error(f"Failed to load Flux ControlNet: {e}")
+    flux_controlnetpipe = None
 
 
 # quantizing
@@ -426,7 +452,6 @@ app.add_middleware(
 async def healthz():
     return {"status": "ok"}
 
-stopwords = nltk.corpus.stopwords.words("english")
 negative = "3 or 4 ears, never BUT ONE EAR, blurry, unclear, bad anatomy, extra limbs, poorly drawn face, poorly drawn hands, missing fingers, mangled teeth, weird teeth, poorly drawn eyes, blurry eyes, tan skin, oversaturated, teeth, poorly drawn, ugly, closed eyes, 3D, weird neck, duplicate, morbid, mutilated, out of frame, extra fingers, mutated hands, poorly drawn hands, poorly drawn face, mutation, deformed, blurry, bad anatomy, bad proportions, extra limbs, cloned face, disfigured, extra limbs, gross proportions, malformed limbs, missing arms, missing legs, extra arms, extra legs, mutated hands, fused fingers, too many fingers, text, logo, wordmark, writing, signature, blurry, bad anatomy, extra limbs, poorly drawn face, poorly drawn hands, missing fingers, Removed From Image Removed From Image flowers, Deformed, blurry, bad anatomy, disfigured, poorly drawn face, mutation, mutated, extra limb, ugly, poorly drawn hands, missing limb, blurry, floating limbs, disconnected limbs, malformed hands, blur, long body, ((((mutated hands and fingers)))), cartoon, 3d ((disfigured)), ((bad art)), ((deformed)), ((extra limbs)), ((dose up)), ((b&w)), Wierd colors, blurry, (((duplicate))), ((morbid)), ((mutilated)), [out of frame], extra fingers, mutated hands, ((poorly drawn hands)), (poorly drawn face)), (((mutation))), (((deformed))), ((ugly)), blurry, ((bad anatomy)), (((bad proportions))), (extra limbs)), cloned face, (((disfigured))), out of frame ugly, extra limbs (bad anatomy), gross proportions (malformed limbs), ((missing arms)), ((missing legs)), (((extra arms))), (((extra legs))), mutated hands, (fused fingers), (too many fingers), (((long neck))), Photoshop, videogame, ugly, tiling, poorly drawn hands, poorly drawn feet, poorly drawn face, out of frame, mutation, mutated, extra limbs, extra legs, extra arms, disfigured deformed cross-eye, ((body out of )), blurry, bad art, bad anatomy, 3d render, two faces, duplicate, coppy, multi, two, disfigured, kitsch, ugly, oversaturated, grain, low-res, Deformed, blurry, bad anatomy, disfigured, poorly drawn face, mutation, mutated, extra limb, ugly, poorly drawn hands, missing limb, blurry, floating limbs, disconnected limbs, malformed hands, blur, out of focus, long neck, long body, ugly, disgusting, poorly drawn, childish, mutilated, mangled, old ugly, tiling, poorly drawn hands, poorly drawn feet, poorly drawn face, out of frame, extra limbs, disfigured, deformed, body out of frame, blurry, bad anatomy, blurred, watermark, grainy, signature, cut off, draf, blurry, bad anatomy, extra limbs, poorly drawn face, poorly drawn hands, missing fingers"
 negative2 = "ugly, deformed, noisy, blurry, distorted, out of focus, bad anatomy, extra limbs, poorly drawn face, poorly drawn hands, missing fingers"
 extra_pipe_args = {
@@ -632,11 +657,9 @@ def style_transfer_image_from_prompt(
     retries=3,
 ):
     prompt = shorten_too_long_text(prompt)
-    # image = pipe(guidance_scale=7,prompt=prompt).images[0]
 
     if not is_defined(input_pil):
         input_pil = load_image(image_url).convert("RGB")
-    # resize to nice size
     input_pil = process_image_for_stable_diffusion(input_pil)
     canny_image = None
     if canny:
@@ -646,99 +669,40 @@ def style_transfer_image_from_prompt(
             in_image = in_image[:, :, None]
             in_image = np.concatenate([in_image, in_image, in_image], axis=2)
             canny_image = Image.fromarray(in_image)
-            # reset seed to be more deterministic?
             set_seed(42)
 
-    try:
-        if canny:
-            # generate image
-            image = controlnetpipe(
-                prompt,
-                controlnet_conditioning_scale=controlnet_conditioning_scale,
-                image=canny_image,
-                num_inference_steps=n_steps,
-                **extra_pipe_args,
-            ).images[0]
-        else:
-            image = img2img(
-                prompt=prompt,
-                image=input_pil,
-                num_inference_steps=n_steps,
-                strength=strength,
-                **extra_pipe_args,
-            ).images[0]
-    except Exception as err:
-        # try rm stopwords + half the prompt
-        # todo try prompt permutations
-        logger.error(err)
-        logger.info(f"trying to shorten prompt of length {len(prompt)}")
-
-        prompt = " ".join((word for word in prompt if word not in stopwords))
-        prompts = prompt.split()
-
-        prompt = " ".join(prompts[: len(prompts) // 2])
-        logger.info(f"shortened prompt to: {len(prompt)}")
-        image = None
-        if prompt:
-            try:
-                if canny:
-                    # generate image
-                    image = controlnetpipe(
-                        prompt,
-                        controlnet_conditioning_scale=controlnet_conditioning_scale,
-                        image=canny_image,
-                        num_inference_steps=n_steps,
-                        **extra_pipe_args,
-                    ).images[0]
-                else:
-                    image = img2img(
-                        prompt=prompt,
-                        image=input_pil,
-                        num_inference_steps=n_steps,
-                        strength=strength,
-                        **extra_pipe_args,
-                    ).images[0]
-            except Exception as err:
-                # logger.info("trying to permute prompt")
-                # # try two swaps of the prompt/permutations
-                # prompt = prompt.split()
-                # prompt = ' '.join(permutations(prompt, 2).__next__())
-                logger.info(f"trying to shorten prompt of length {len(prompt)}")
-
-                prompt = " ".join((word for word in prompt if word not in stopwords))
-                prompts = prompt.split()
-
-                prompt = " ".join(prompts[: len(prompts) // 2])
-                logger.info(f"shortened prompt to: {len(prompt)}")
-
-                try:
-                    if canny:
-                        # generate image
-                        image = controlnetpipe(
-                            prompt,
-                            controlnet_conditioning_scale=controlnet_conditioning_scale,
-                            image=canny_image,
-                            num_inference_steps=n_steps,
-                            **extra_pipe_args,
-                        ).images[0]
-                    else:
-                        image = img2img(
-                            prompt=prompt,
-                            image=input_pil,
-                            num_inference_steps=n_steps,
-                            strength=strength,
-                            **extra_pipe_args,
-                        ).images[0]
-                except Exception as inner_error:
-                    # just error out
-                    traceback.print_exc()
-                    raise inner_error
-                    # logger.info("restarting server to fix cuda issues (device side asserts)")
-                    # todo fix device side asserts instead of restart to fix
-                    # todo only restart the correct gunicorn
-                    # this could be really annoying if your running other gunicorns on your machine which also get restarted
-                    # os.system("/usr/bin/bash kill -SIGHUP `pgrep gunicorn`")
-                    # os.system("kill -1 `pgrep gunicorn`")
+    generator = torch.Generator("cpu").manual_seed(0)
+    for attempt in range(retries + 1):
+        try:
+            if canny and flux_controlnetpipe:
+                image = flux_controlnetpipe(
+                    prompt=prompt,
+                    image=canny_image,
+                    num_inference_steps=n_steps,
+                    guidance_scale=0.0,
+                    generator=generator,
+                    max_sequence_length=256,
+                ).images[0]
+            else:
+                image = flux_pipe(
+                    prompt=prompt,
+                    width=input_pil.width,
+                    height=input_pil.height,
+                    guidance_scale=0.0,
+                    num_inference_steps=n_steps,
+                    generator=generator,
+                    max_sequence_length=256,
+                ).images[0]
+            break
+        except Exception as err:
+            if attempt >= retries:
+                raise
+            logger.warning(
+                f"Flux style transfer failed on attempt {attempt + 1}/{retries}: {err}"
+            )
+            prompt = remove_stopwords(prompt) if attempt == 0 else shorten_prompt_for_retry(prompt)
+            if not prompt:
+                raise err
     # todo refine
     # if image != None and use_refiner:
     #     image = refiner(
@@ -791,6 +755,60 @@ def style_transfer_image_from_prompt(
     return image_to_bytes(image)
 
 
+def create_image_from_prompt(
+    prompt, width, height, n_steps=5, extra_args=None, retries=3
+):
+    """Generate an image using the Flux Schnell pipeline with retries."""
+    if extra_args is None:
+        extra_args = {}
+
+    block_width = width - (width % 64)
+    block_height = height - (height % 64)
+    prompt = shorten_too_long_text(prompt)
+    generator = torch.Generator("cpu").manual_seed(extra_args.get("seed", 0))
+
+    for attempt in range(retries + 1):
+        try:
+            image = flux_pipe(
+                prompt=prompt,
+                width=block_width,
+                height=block_height,
+                guidance_scale=0.0,
+                num_inference_steps=n_steps,
+                generator=generator,
+                max_sequence_length=256,
+            ).images[0]
+            break
+        except Exception as err:  # pragma: no cover - hardware/oom errors
+            if attempt >= retries:
+                raise
+            logger.warning(
+                f"Flux generation failed on attempt {attempt + 1}/{retries}: {err}"
+            )
+            if attempt == 0:
+                prompt = remove_stopwords(prompt)
+            else:
+                prompt = shorten_prompt_for_retry(prompt)
+            if not prompt:
+                raise err
+
+    if width != block_width or height != block_height:
+        scale_up_ratio = max(width / block_width, height / block_height)
+        image = image.resize(
+            (math.ceil(block_width * scale_up_ratio), math.ceil(height * scale_up_ratio))
+        )
+        image = image.crop((0, 0, width, height))
+
+    if detect_too_bumpy(image):
+        if retries <= 0:
+            raise Exception("image too bumpy, retrying failed")
+        logger.info("image too bumpy, retrying once w different prompt detailed")
+        return create_image_from_prompt(
+            prompt + " detail", width, height, n_steps + 1, extra_args, retries - 1
+        )
+
+    return image_to_bytes(image)
+
 # multiprocessing.set_start_method('spawn', True)
 # processes_pool = Pool(1) # cant do too much at once or OOM errors happen
 # def create_image_from_prompt_sync(prompt):
@@ -798,147 +816,6 @@ def style_transfer_image_from_prompt(
 #     return processes_pool.apply_async(create_image_from_prompt, args=(prompt,), ).wait()
 
 
-def create_image_from_prompt(
-    prompt, width, height, n_steps=5, extra_args={}, retries=3
-):
-    # round width and height down to multiple of 64
-    block_width = width - (width % 64)
-    block_height = height - (height % 64)
-    prompt = shorten_too_long_text(prompt)
-    extra_total_args = {**extra_pipe_args, **extra_args}
-    # image = pipe(guidance_scale=7,prompt=prompt).images[0]
-    try:
-        image = pipe(
-            prompt=prompt,
-            # guidance_scale=7,
-            width=block_width,
-            height=block_height,
-            # denoising_end=high_noise_frac,
-            output_type="latent" if use_refiner else "pil",
-            # height=512,
-            # width=512,
-            num_inference_steps=n_steps,
-            **extra_total_args,
-        ).images[0]
-    except Exception as e:
-        # try rm stopwords + half the prompt
-        # todo try prompt permutations
-        logger.info(f"trying to shorten prompt of length {len(prompt)}")
-
-        prompt = " ".join((word for word in prompt if word not in stopwords))
-        prompts = prompt.split()
-
-        prompt = " ".join(prompts[: len(prompts) // 2])
-        logger.info(f"shortened prompt to: {len(prompt)}")
-        image = None
-        if prompt:
-            try:
-                image = pipe(
-                    prompt=prompt,
-                    # guidance_scale=7,
-                    negative_prompt=negative,
-                    width=block_width,
-                    height=block_height,
-                    # denoising_end=high_noise_frac,
-                    output_type="latent" if use_refiner else "pil",
-                    # height=512,
-                    # width=512,
-                    num_inference_steps=n_steps,
-                    **extra_total_args,
-                ).images[0]
-            except Exception as e:
-                # logger.info("trying to permute prompt")
-                # # try two swaps of the prompt/permutations
-                # prompt = prompt.split()
-                # prompt = ' '.join(permutations(prompt, 2).__next__())
-                logger.info(f"trying to shorten prompt of length {len(prompt)}")
-
-                prompt = " ".join((word for word in prompt if word not in stopwords))
-                prompts = prompt.split()
-
-                prompt = " ".join(prompts[: len(prompts) // 2])
-                logger.info(f"shortened prompt to: {len(prompt)}")
-
-                try:
-                    image = pipe(
-                        prompt=prompt,
-                        # guidance_scale=7,
-                        negative_prompt=negative,
-                        width=block_width,
-                        height=block_height,
-                        # denoising_end=high_noise_frac,
-                        output_type=(
-                            "latent" if use_refiner else "pil"
-                        ),  # dont need latent yet - we refine the image at full res
-                        # height=512,
-                        # width=512,
-                        num_inference_steps=n_steps,
-                    ).images[0]
-                except Exception as e:
-                    # just error out
-                    traceback.print_exc()
-                    raise e
-                    # logger.info("restarting server to fix cuda issues (device side asserts)")
-                    # todo fix device side asserts instead of restart to fix
-                    # todo only restart the correct gunicorn
-                    # this could be really annoying if your running other gunicorns on your machine which also get restarted
-                    # os.system("/usr/bin/bash kill -SIGHUP `pgrep gunicorn`")
-                    # os.system("kill -1 `pgrep gunicorn`")
-    # todo refine
-    if image != None and use_refiner:
-        # todo depend on q length?
-        # refiner.set_adapters(["lcm"], adapter_weights=[0])  # turn lcm off temporarily
-        image = refiner(
-            prompt=prompt,
-            num_inference_steps=8,
-            # guidance_scale=7,
-            # width=block_width,
-            # height=block_height,
-            # num_inference_steps=n_steps, # default
-            # denoising_start=high_noise_frac,
-            image=image,
-        ).images[0]
-        # pipe.set_adapters(["lcm"], adapter_weights=[1.0])  # turn lcm back on
-    if width != block_width or height != block_height:
-        # resize to original size width/height
-        # find aspect ratio to scale up to that covers the original img input width/height
-        scale_up_ratio = max(width / block_width, height / block_height)
-        image = image.resize(
-            (
-                math.ceil(block_width * scale_up_ratio),
-                math.ceil(height * scale_up_ratio),
-            )
-        )
-        # crop image to original size
-        image = image.crop((0, 0, width, height))
-    # try:
-    #     # gc.collect()
-    #     torch.cuda.empty_cache()
-    # except Exception as e:
-    #     traceback.print_exc()
-    #     logger.info("restarting server to fix cuda issues (device side asserts)")
-    #     # todo fix device side asserts instead of restart to fix
-    #     # todo only restart the correct gunicorn
-    #     # this could be really annoying if your running other gunicorns on your machine which also get restarted
-    #     os.system("/usr/bin/bash kill -SIGHUP `pgrep gunicorn`")
-    #     os.system("kill -1 `pgrep gunicorn`")
-    # save as bytesio
-
-    # touch progress.txt file - if we dont do this we get restarted by supervisor/other processes for reliability
-    with open("progress.txt", "w") as f:
-        current_time = datetime.now().strftime("%H:%M:%S")
-        f.write(f"{current_time}")
-
-    if detect_too_bumpy(image):
-        if retries <= 0:
-            raise Exception(
-                "image too bumpy, retrying failed"
-            )  # todo fix and just accept it?
-        logger.info("image too bumpy, retrying once w different prompt detailed")
-        return create_image_from_prompt(
-            prompt + " detail", width, height, n_steps + 1, extra_args, retries - 1
-        )
-    return image_to_bytes(image)
 
 
 def image_to_bytes(image):
@@ -963,7 +840,7 @@ def image_to_bytes(image):
     return bio
 
 
-def inpaint_image_from_prompt(prompt, image_url: str, mask_url: str):
+def inpaint_image_from_prompt(prompt, image_url: str, mask_url: str, retries=3):
     prompt = shorten_too_long_text(prompt)
     # image = pipe(guidance_scale=7,prompt=prompt).images[0]
 
@@ -973,73 +850,28 @@ def inpaint_image_from_prompt(prompt, image_url: str, mask_url: str):
     num_inference_steps = 40
     high_noise_frac = 0.7
 
-    try:
-        image = inpaintpipe(
-            prompt=prompt,
-            # guidance_scale=7,
-            image=init_image,
-            mask_image=mask_image,
-            num_inference_steps=num_inference_steps,
-            denoising_start=high_noise_frac,
-            output_type="latent",
-        ).images[
-            0
-        ]  # normally uses 50 steps
-    except Exception as e:
-        # try rm stopwords + half the prompt
-        # todo try prompt permutations
-        logger.info(f"trying to shorten prompt of length {len(prompt)}")
-
-        prompt = " ".join((word for word in prompt if word not in stopwords))
-        prompts = prompt.split()
-
-        prompt = " ".join(prompts[: len(prompts) // 2])
-        logger.info(f"shortened prompt to: {len(prompt)}")
-        image = None
-        if prompt:
-            try:
-                image = pipe(
-                    prompt=prompt,
-                    image=init_image,
-                    # guidance_scale=7,
-                    mask_image=mask_image,
-                    num_inference_steps=num_inference_steps,
-                    denoising_start=high_noise_frac,
-                    output_type="latent",
-                ).images[0]
-            except Exception as e:
-                # logger.info("trying to permute prompt")
-                # # try two swaps of the prompt/permutations
-                # prompt = prompt.split()
-                # prompt = ' '.join(permutations(prompt, 2).__next__())
-                logger.info(f"trying to shorten prompt of length {len(prompt)}")
-
-                prompt = " ".join((word for word in prompt if word not in stopwords))
-                prompts = prompt.split()
-
-                prompt = " ".join(prompts[: len(prompts) // 2])
-                logger.info(f"shortened prompt to: {len(prompt)}")
-
-                try:
-                    image = inpaintpipe(
-                        prompt=prompt,
-                        # guidance_scale=7,
-                        image=init_image,
-                        mask_image=mask_image,
-                        num_inference_steps=num_inference_steps,
-                        denoising_start=high_noise_frac,
-                        output_type="latent",
-                    ).images[0]
-                except Exception as e:
-                    # just error out
-                    traceback.print_exc()
-                    raise e
-                    # logger.info("restarting server to fix cuda issues (device side asserts)")
-                    # todo fix device side asserts instead of restart to fix
-                    # todo only restart the correct gunicorn
-                    # this could be really annoying if your running other gunicorns on your machine which also get restarted
-                    # os.system("/usr/bin/bash kill -SIGHUP `pgrep gunicorn`")
-                    # os.system("kill -1 `pgrep gunicorn`")
+    generator = torch.Generator("cpu").manual_seed(0)
+    for attempt in range(retries + 1):
+        try:
+            image = inpaintpipe(
+                prompt=prompt,
+                image=init_image,
+                mask_image=mask_image,
+                num_inference_steps=num_inference_steps,
+                denoising_start=high_noise_frac,
+                output_type="latent",
+            ).images[0]
+            break
+        except Exception as e:
+            if attempt >= retries:
+                traceback.print_exc()
+                raise
+            logger.warning(
+                f"Inpainting failed on attempt {attempt + 1}/{retries}: {e}"
+            )
+            prompt = remove_stopwords(prompt) if attempt == 0 else shorten_prompt_for_retry(prompt)
+            if not prompt:
+                raise e
     if image != None:
         image = inpaint_refiner(
             prompt=prompt,
@@ -1067,19 +899,3 @@ def inpaint_image_from_prompt(prompt, image_url: str, mask_url: str):
     return image_to_bytes(image)
 
 
-def shorten_too_long_text(prompt):
-    if len(prompt) > 200:
-        # remove stopwords
-        prompt = prompt.split()  # todo also split hyphens
-        prompt = " ".join((word for word in prompt if word not in stopwords))
-        if len(prompt) > 200:
-            prompt = prompt[:200]
-    return prompt
-
-
-# image = pipe(guidance_scale=7,prompt=prompt).images[0]
-#
-# image.save("test.png")
-# save all images
-# for i, image in enumerate(images):
-#     image.save(f"{i}.png")

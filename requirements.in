@@ -40,7 +40,7 @@ tokenizers
 --extra-index-url https://download.pytorch.org/whl/cu122
 torch
 tqdm
-transformers
+transformers==4.38.0
 #triton
 typing_extensions
 urllib3
