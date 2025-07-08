@@ -91,11 +91,14 @@ except OSError as e:
 old_scheduler = pipe.scheduler
 pipe.scheduler = LCMScheduler.from_config(pipe.scheduler.config)
 
-if os.path.exists("models/lcm-lora-sdxl"):
-    pipe.load_lora_weights("models/lcm-lora-sdxl", adapter_name="lcm")
-else:
-    pipe.load_lora_weights("latent-consistency/lcm-lora-sdxl", adapter_name="lcm")
-pipe.set_adapters(["lcm"], adapter_weights=[1.0])
+if os.getenv("LOAD_LCM_LORA", "0") == "1":
+    if os.path.exists("models/lcm-lora-sdxl"):
+        pipe.load_lora_weights("models/lcm-lora-sdxl", adapter_name="lcm")
+    else:
+        pipe.load_lora_weights(
+            "latent-consistency/lcm-lora-sdxl", adapter_name="lcm"
+        )
+    pipe.set_adapters(["lcm"], adapter_weights=[1.0])
 
 # Load Flux Schnell pipeline for efficient text-to-image
 flux_pipe = FluxPipeline.from_pretrained(

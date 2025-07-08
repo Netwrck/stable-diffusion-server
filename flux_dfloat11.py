@@ -24,6 +24,13 @@ parser.add_argument("--save_path", type=str, default="image.png")
 parser.add_argument(
     "--controlnet", action="store_true", help="Enable line controlnet LoRA"
 )
+parser.add_argument("--seed", type=int, default=0, help="Random seed")
+parser.add_argument(
+    "--steps",
+    type=int,
+    default=50,
+    help="Number of inference steps",
+)
 
 
 def main() -> None:
@@ -36,9 +43,10 @@ def main() -> None:
 
     # Load DFloat11 weights for the text transformer
     model_path = os.getenv("DF11_MODEL_PATH", "DFloat11/FLUX.1-dev-DF11")
+    device = os.getenv("DF11_DEVICE") or ("cuda" if torch.cuda.is_available() else "cpu")
     DFloat11Model.from_pretrained(
         model_path,
-        device="cpu",
+        device=device,
         bfloat16_model=pipe.transformer,
     )
 
@@ -67,9 +75,9 @@ def main() -> None:
         width=1920,
         height=1440,
         guidance_scale=3.5,
-        num_inference_steps=50,
+        num_inference_steps=args.steps,
         max_sequence_length=512,
-        generator=torch.Generator(device="cpu").manual_seed(0),
+        generator=torch.Generator(device=device).manual_seed(args.seed),
     ).images[0]
 
     image.save(args.save_path)

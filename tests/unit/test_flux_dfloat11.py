@@ -12,3 +12,5 @@ def test_default_args():
     args = parser.parse_args([])
     assert args.prompt
     assert args.save_path == "image.png"
+    assert args.seed == 0
+    assert args.steps == 50

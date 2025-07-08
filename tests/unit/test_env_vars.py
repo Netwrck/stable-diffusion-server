@@ -11,7 +11,9 @@ except Exception:
 
 def test_env_override(monkeypatch):
     monkeypatch.setenv("DF11_MODEL_PATH", "test-model")
+    monkeypatch.setenv("DF11_DEVICE", "cpu")
     args = parser.parse_args([])
     assert args.save_path == "image.png"
     # ensure env var accessible
     assert os.getenv("DF11_MODEL_PATH") == "test-model"
+    assert os.getenv("DF11_DEVICE") == "cpu"
