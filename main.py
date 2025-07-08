@@ -102,6 +102,16 @@ flux_pipe = FluxPipeline.from_pretrained(
     "black-forest-labs/FLUX.1-schnell", torch_dtype=torch.bfloat16
 )
 flux_pipe.enable_model_cpu_offload()
+try:
+    from dfloat11 import DFloat11Model
+    dfloat_path = os.getenv("DF11_MODEL_PATH", "DFloat11/FLUX.1-schnell-DF11")
+    DFloat11Model.from_pretrained(
+        dfloat_path,
+        device="cpu",
+        bfloat16_model=flux_pipe.transformer,
+    )
+except Exception as e:
+    logger.error(f"Failed to load DFloat11 weights: {e}")
 
 try:
     flux_controlnet = ControlNetModel.from_pretrained(
@@ -111,6 +121,14 @@ try:
         controlnet=flux_controlnet, **flux_pipe.components
     )
     flux_controlnetpipe.enable_model_cpu_offload()
+    try:
+        lora_path = os.getenv(
+            "CONTROLNET_LORA", "black-forest-labs/flux-controlnet-line-lora"
+        )
+        flux_controlnetpipe.load_lora_weights(lora_path, adapter_name="line")
+        flux_controlnetpipe.set_adapters(["line"], adapter_weights=[1.0])
+    except Exception as e:
+        logger.error(f"Failed to load ControlNet LoRA: {e}")
 except Exception as e:
     logger.error(f"Failed to load Flux ControlNet: {e}")
     flux_controlnetpipe = None

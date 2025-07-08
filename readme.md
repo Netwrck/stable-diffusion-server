@@ -64,6 +64,15 @@ python flux_schnell.py
 ```
 This will generate `flux-schnell.png` using bf16 precision.
 
+### DFloat11 Example
+The repository includes an optional script for running the FLUX model using the
+experimental DFloat11 weights which drastically reduce memory usage. After
+installing the `dfloat11` package, generate an image with:
+```bash
+python flux_dfloat11.py --prompt "A futuristic city" --save_path myimage.png
+```
+Use the `--controlnet` flag to enable the line ControlNet LoRA.
+
 
 ![gradio demo](gradioimg.png)
 
