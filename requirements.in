@@ -76,3 +76,4 @@ gradio
 pillow-avif-plugin
 optimum-quanto
 xformers
+dfloat11[cuda12]
