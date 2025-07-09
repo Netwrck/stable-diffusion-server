@@ -1,6 +1,3 @@
-import pytest
-pytest.skip(reason="requires heavy model imports", allow_module_level=True)
-
 from fastapi.testclient import TestClient
 
 from main import app

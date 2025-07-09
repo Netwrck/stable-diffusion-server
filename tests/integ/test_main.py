@@ -1,6 +1,3 @@
-# import pytest
-# pytest.skip(reason="requires heavy stable diffusion models", allow_module_level=True)
-
 from PIL import Image
 
 import pillow_avif
