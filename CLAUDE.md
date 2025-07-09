@@ -13,10 +13,16 @@ uv pip install -r requirements.txt -r dev-requirements.txt
 
 # Download required NLTK data
 python -c "import nltk; nltk.download('stopwords')"
+
+# Set up Google Cloud credentials for production
+export GOOGLE_APPLICATION_CREDENTIALS="secrets/google-credentials.json"
 ```
 
 ### Development Commands
 ```bash
+# Activate virtual environment
+source .venv/bin/activate
+
 # Run Gradio UI for local development
 python gradio_ui.py
 
@@ -30,7 +36,7 @@ python flux_schnell.py
 uvicorn main:app --port 8000
 
 # Run tests
-pytest -q
+pytest
 
 # Lint code
 flake8
@@ -110,16 +116,6 @@ make docker-cloudrun
 - **flux_schnell.py** - Standalone Flux pipeline example
 
 ## Environment Variables
-
-### Storage Configuration
-```bash
-STORAGE_PROVIDER=r2  # or 'gcs'
-BUCKET_NAME=your-bucket-name
-BUCKET_PATH=static/uploads
-R2_ENDPOINT_URL=https://your-account.r2.cloudflarestorage.com
-PUBLIC_BASE_URL=your-domain.com
-GOOGLE_APPLICATION_CREDENTIALS=secrets/google-credentials.json
-```
 
 ### Model Configuration
 ```bash

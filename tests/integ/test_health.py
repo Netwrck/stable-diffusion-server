@@ -1,7 +1,7 @@
 import pytest
-from fastapi.testclient import TestClient
+pytest.skip(reason="requires heavy model imports", allow_module_level=True)
 
-pytestmark = pytest.mark.skip(reason="requires heavy model imports")
+from fastapi.testclient import TestClient
 
 from main import app
 

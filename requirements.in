@@ -40,7 +40,7 @@ tokenizers
 --extra-index-url https://download.pytorch.org/whl/cu122
 torch
 tqdm
-transformers==4.38.0
+transformers>=4.53.1
 #triton
 typing_extensions
 urllib3
@@ -49,7 +49,7 @@ zipp
 jinja2
 loguru
 boto3
-
+nemo_toolkit[asr]
 google-api-python-client
 google-api-core #1.31.5
 #google-cloud-storage

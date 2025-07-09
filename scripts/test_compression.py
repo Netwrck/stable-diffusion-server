@@ -1,4 +1,7 @@
 # save images in 1-10 compresion timing the results
+import pytest
+pytest.skip(reason="script file, not a test", allow_module_level=True)
+
 from pathlib import Path
 from time import time
 def test_compression():

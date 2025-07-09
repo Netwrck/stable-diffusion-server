@@ -15,7 +15,6 @@ import uuid
 
 import cv2
 import numpy as np
-import nltk
 import torch
 from PIL import Image
 from diffusers import (
@@ -51,7 +50,6 @@ from stable_diffusion_server.prompt_utils import (
     shorten_too_long_text,
     shorten_prompt_for_retry,
     remove_stopwords,
-    stopwords,
 )
 
 try:

@@ -1,7 +1,7 @@
 import os
 import pytest
 from fastapi.testclient import TestClient
-from moto import mock_s3
+from moto import mock_aws
 
 from main import app
 

@@ -7,7 +7,7 @@ djlint
 pytest-env==0.8.1
 ipython
 
-line-profiler-pycharm==1.1.0
-line-profiler==4.0.3
+# line-profiler-pycharm==1.1.0
+# line-profiler==4.0.3
 flake8
 moto
