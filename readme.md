@@ -20,56 +20,69 @@ For a hosted AI Art Generation experience, check out our [AI Art Generator and S
 ### Setup
 
 1. Create a virtual environment (optional):
-```bash
-pip install uv
-uv venv
-source .venv/bin/activate
-```
+
+    ```bash
+    pip install uv
+    uv venv
+    source .venv/bin/activate
+    ```
 
 2. Install dependencies:
-```bash
-uv pip install -r requirements.txt
-uv pip install -r dev-requirements.txt
-```
+
+    ```bash
+    uv pip install -r requirements.txt
+    uv pip install -r dev-requirements.txt
+    ```
 
 3. Clone necessary models (or point to your own SDXL models in main.py)
-```bash
-cd models
-git clone git@hf.co:/stabilityai/stable-diffusion-xl-base-1.0
-git clone git@hf.co:/dataautogpt3/ProteusV0.2
 
-# Optional for line based style transfer
-git clone git@hf.co:/diffusers/controlnet-canny-sdxl-1.0
-```
+    ```bash
+    cd models
+    git clone git@hf.co:/stabilityai/stable-diffusion-xl-base-1.0
+    git clone git@hf.co:/dataautogpt3/ProteusV0.2
+
+    # Optional for line based style transfer
+    git clone git@hf.co:/diffusers/controlnet-canny-sdxl-1.0
+
+    # ControlNet
+    wget -O controlnet.safetensors https://huggingface.co/stabilityai/control-lora/resolve/main/control-LoRAs-rank256/control-lora-canny-rank256.safetensors
+    ```
 
 4. Install NLTK stopwords:
-```bash
-python -c "import nltk; nltk.download('stopwords')"
-```
+
+    ```bash
+    python -c "import nltk; nltk.download('stopwords')"
+    ```
 
 ### Running the Gradio UI
 
 Launch the user-friendly Gradio interface:
-```
+
+```bash
 python gradio_ui.py
 ```
-Go to
-http://127.0.0.1:7860
+
+Go to: http://127.0.0.1:7860
 
 ### Flux Schnell Example
+
 The server now uses the lightweight Flux Schnell model by default. You can quickly
 test the model with the helper script:
+
 ```bash
 python flux_schnell.py
 ```
-This will generate `flux-schnell.png` using bf16 precision.
 
+This will generate `flux-schnell.png` using bf16 precision.
 
 ![gradio demo](gradioimg.png)
 
 ## Server setup
-#### Edit settings
+
+### Edit settings
+
 #### Configure storage credentials
+
 By default the server uploads to an R2 bucket using S3 compatible credentials.
 Set the following environment variables if you need to customise the backend:
 
@@ -96,8 +109,10 @@ python scripts/upload_file.py local.png uploads/example.png
 GOOGLE_APPLICATION_CREDENTIALS=secrets/google-credentials.json \
     gunicorn -k uvicorn.workers.UvicornWorker -b :8000 main:app --timeout 600 -w 1
 ```
+
 with max 4 requests at a time
 This will drop a lot of requests under load instead of taking on too much work and causing OOM Errors.
+
 ```bash
 GOOGLE_APPLICATION_CREDENTIALS=secrets/google-credentials.json \
     PYTHONPATH=. uvicorn --port 8000 --timeout-keep-alive 600 --workers 1 --backlog 1 --limit-concurrency 4 main:app
@@ -108,6 +123,7 @@ GOOGLE_APPLICATION_CREDENTIALS=secrets/google-credentials.json \
 http://localhost:8000/create_and_upload_image?prompt=good%20looking%20elf%20fantasy%20character&save_path=created/elf.webp
 
 Response
+
 ```shell
 {"path":"https://netwrckstatic.netwrck.com/static/uploads/created/elf.png"}
 ```
@@ -123,6 +139,7 @@ Check to see that "good Looking elf fantasy character" was created
 ### Testing
 
 Run the unit tests with:
+
 ```bash
 GOOGLE_APPLICATION_CREDENTIALS=secrets/google-credentials.json pytest tests/unit
 ```
@@ -134,6 +151,7 @@ edit ops/supervisor.conf
 
 install the supervisor
 apt-get install -y supervisor
+
 ```bash
 sudo cat >/etc/supervisor/conf.d/python-app.conf << EOF
 [program:sdif_http_server]
@@ -156,12 +174,14 @@ sudo supervisorctl update
 Sometimes the server just stops working and needs a hard restart
 
 This command will kill the server if it is hanging and restart it (must be running under supervisorctl)
+
 ```
 python3 manager.py
 ```
 
 # hack restarting without supervisor
 run the server in a infinite loop
+
 ```
 while true; do GOOGLE_APPLICATION_CREDENTIALS=secrets/google-credentials.json PYTHONPATH=. uvicorn --port 8000 --timeout-keep-alive 600 --workers 1 --backlog 1 --limit-concurrency 4 main:app; done
 ```

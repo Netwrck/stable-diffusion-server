@@ -1,11 +1,11 @@
-accelerate
+accelerate>=0.31.0
 annotated-types
 anyio
 certifi
 charset-normalizer
 click
 cmake
-diffusers
+diffusers>=0.31.0
 exceptiongroup
 fastapi
 filelock
@@ -39,8 +39,9 @@ sympy
 tokenizers
 --extra-index-url https://download.pytorch.org/whl/cu122
 torch
+torchvision
 tqdm
-transformers>=4.53.1
+transformers
 #triton
 typing_extensions
 urllib3
@@ -71,7 +72,7 @@ google-cloud-aiplatform
 streamlit
 DeepCache
 tomesd
-peft
+peft>=0.15.0
 gradio
 pillow-avif-plugin
 optimum-quanto

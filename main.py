@@ -1,15 +1,11 @@
-import gc
 import math
-import multiprocessing
 import os
 import traceback
 from datetime import datetime
 from io import BytesIO
-from itertools import permutations
-from multiprocessing.pool import Pool
-from pathlib import Path
 from urllib.parse import quote_plus
 import uuid
+from pathlib import Path
 
 # import tomesd
 
@@ -20,12 +16,7 @@ from PIL import Image
 from diffusers import (
     DiffusionPipeline,
     StableDiffusionXLInpaintPipeline,
-    UNet2DConditionModel,
     LCMScheduler,
-    StableDiffusionInpaintPipeline,
-    StableDiffusionImg2ImgPipeline,
-    KDPM2AncestralDiscreteScheduler,
-    StableDiffusionXLImg2ImgPipeline,
     ControlNetModel,
     StableDiffusionXLControlNetPipeline,
     AutoPipelineForImage2Image,
@@ -33,24 +24,31 @@ from diffusers import (
     FluxControlNetPipeline,
 )
 from diffusers.utils import load_image
-from fastapi import FastAPI
+from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.gzip import GZipMiddleware
 from loguru import logger
 from starlette.middleware.cors import CORSMiddleware
-from starlette.responses import FileResponse
-from starlette.responses import JSONResponse
+from starlette.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from transformers import set_seed
 
 from env import BUCKET_PATH, BUCKET_NAME
 from stable_diffusion_server.bucket_api import check_if_blob_exists, upload_to_bucket
 from stable_diffusion_server.bumpy_detection import detect_too_bumpy
-from stable_diffusion_server.image_processing import process_image_for_stable_diffusion
+from stable_diffusion_server.image_processing import (
+    process_image_for_stable_diffusion,
+)
 from stable_diffusion_server.utils import log_time
 from stable_diffusion_server.prompt_utils import (
     shorten_too_long_text,
     shorten_prompt_for_retry,
     remove_stopwords,
 )
+from stable_diffusion_server.prompt_utils import (
+    remove_stopwords,
+    shorten_prompt_for_retry,
+)
+
+from stable_diffusion_server.custom_pipeline import CustomPipeline
 
 try:
     import pillow_avif
@@ -59,53 +57,34 @@ try:
 except Exception as e:
     logger.error(f"Error importing pillow_avif: {e}")
 
-# model_name = "models/SSD-1B"
-model_name = "models/ProteusV0.2"
-# model_name = "dataautogpt3/ProteusV0.2"
-# try:
-#     unet = UNet2DConditionModel.from_pretrained(
-#         "models/lcm-ssd-1b", torch_dtype=torch.float16, variant="fp16"
-#     )
-# except OSError as e:
-#     unet = UNet2DConditionModel.from_pretrained(
-#         "latent-consistency/lcm-ssd-1b", torch_dtype=torch.float16, variant="fp16"
-#     )
-
-try:
-    # pipe = DiffusionPipeline.from_pretrained(
-    #     "models/SSD-1B", unet=unet, torch_dtype=torch.float16, variant="fp16"
-    # )
-    pipe = DiffusionPipeline.from_pretrained(
-        model_name, torch_dtype=torch.float16, variant="fp16"
-    )
-except OSError as e:
-    # pipe = DiffusionPipeline.from_pretrained(
-    #     "segmind/SSD-1B", unet=unet, torch_dtype=torch.float16, variant="fp16"
-    # )
-    pipe = DiffusionPipeline.from_pretrained(
-        "dataautogpt3/ProteusV0.2", torch_dtype=torch.float16, variant="fp16"
-    )
-
-old_scheduler = pipe.scheduler
-pipe.scheduler = LCMScheduler.from_config(pipe.scheduler.config)
-
-if os.getenv("LOAD_LCM_LORA", "0") == "1":
-    if os.path.exists("models/lcm-lora-sdxl"):
-        pipe.load_lora_weights("models/lcm-lora-sdxl", adapter_name="lcm")
-    else:
-        pipe.load_lora_weights(
-            "latent-consistency/lcm-lora-sdxl", adapter_name="lcm"
-        )
-    pipe.set_adapters(["lcm"], adapter_weights=[1.0])
+app = FastAPI()
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+# Remove all Proteus model loading - using only Flux models now
+# pipe = None  # Will be set to flux_pipe below
 
 # Load Flux Schnell pipeline for efficient text-to-image
-flux_pipe = FluxPipeline.from_pretrained(
-    "black-forest-labs/FLUX.1-schnell", torch_dtype=torch.bfloat16
-)
+try:
+    flux_pipe = FluxPipeline.from_pretrained(
+        "models/FLUX.1-schnell", torch_dtype=torch.bfloat16
+    )
+except OSError:
+    # Fallback to online model if local not available
+    flux_pipe = FluxPipeline.from_pretrained(
+        "black-forest-labs/FLUX.1-schnell", torch_dtype=torch.bfloat16
+    )
 flux_pipe.enable_model_cpu_offload()
+flux_pipe.enable_sequential_cpu_offload()
 try:
     from dfloat11 import DFloat11Model
-    dfloat_path = os.getenv("DF11_MODEL_PATH", "DFloat11/FLUX.1-schnell-DF11")
+
+    dfloat_path = os.getenv("DF11_MODEL_PATH", "models/DFloat11__FLUX.1-schnell-DF11")
     DFloat11Model.from_pretrained(
         dfloat_path,
         device="cpu",
@@ -114,29 +93,16 @@ try:
 except Exception as e:
     logger.error(f"Failed to load DFloat11 weights: {e}")
 
-try:
-    flux_controlnet = ControlNetModel.from_pretrained(
-        "black-forest-labs/flux-controlnet-canny", torch_dtype=torch.bfloat16
-    )
-    flux_controlnetpipe = FluxControlNetPipeline(
-        controlnet=flux_controlnet, **flux_pipe.components
-    )
-    flux_controlnetpipe.enable_model_cpu_offload()
-    try:
-        lora_path = os.getenv(
-            "CONTROLNET_LORA", "black-forest-labs/flux-controlnet-line-lora"
-        )
-        flux_controlnetpipe.load_lora_weights(lora_path, adapter_name="line")
-        flux_controlnetpipe.set_adapters(["line"], adapter_weights=[1.0])
-    except Exception as e:
-        logger.error(f"Failed to load ControlNet LoRA: {e}")
-except Exception as e:
-    logger.error(f"Failed to load Flux ControlNet: {e}")
-    flux_controlnetpipe = None
+# Disable ControlNet for now to focus on getting basic functionality working
+flux_controlnetpipe = None
+
+
+# Disable custom pipeline for now to avoid T5 OOM issues
+custom_pipeline = None
 
 
 # quantizing
-from optimum.quanto import freeze, qfloat8, quantize
+# from optimum.quanto import freeze, qfloat8, quantize
 
 # print(pipe.components)
 # # # Quantize and freeze the text_encoder
@@ -166,327 +132,86 @@ from optimum.quanto import freeze, qfloat8, quantize
 # freeze(unet)
 # pipe.unet = unet
 
-pipe.enable_model_cpu_offload()
-pipe.enable_sequential_cpu_offload()
+# Replace old SDXL pipelines with Flux equivalents
+from diffusers import FluxImg2ImgPipeline, FluxInpaintPipeline
 
-# mem efficient
-pipe.enable_attention_slicing()
-pipe.enable_vae_slicing()
-
-# pipe.to("cuda")
-
-all_components = pipe.components
-# all_components.pop("scheduler")
-# all_components.pop("text_encoder")
-# all_components.pop("text_encoder_2")
-# all_components.pop("tokenizer")
-# all_components.pop("tokenizer_2")
-
-img2img = AutoPipelineForImage2Image.from_pipe(pipe)
-img2img.watermark = None
-
-
-# mem efficient
-img2img.enable_attention_slicing()
-img2img.enable_vae_slicing()
-# img2img.to("cuda")
-# img2img.enable_xformers_memory_efficient_attention()
+# Create Flux-based img2img pipeline
+try:
+    img2img = FluxImg2ImgPipeline.from_pretrained(
+        "models/FLUX.1-schnell", torch_dtype=torch.bfloat16
+    )
+except OSError:
+    img2img = FluxImg2ImgPipeline.from_pretrained(
+        "black-forest-labs/FLUX.1-schnell", torch_dtype=torch.bfloat16
+    )
 img2img.enable_model_cpu_offload()
 img2img.enable_sequential_cpu_offload()
 
-# # Quantize and freeze the text_encoder
-# text_encoder = img2img.text_encoder
-# quantize(text_encoder, weights=qfloat8)
-# freeze(text_encoder)
-# img2img.text_encoder = text_encoder
+# Create Flux-based inpaint pipeline  
+try:
+    inpaintpipe = FluxInpaintPipeline.from_pretrained(
+        "models/FLUX.1-schnell", torch_dtype=torch.bfloat16
+    )
+except OSError:
+    inpaintpipe = FluxInpaintPipeline.from_pretrained(
+        "black-forest-labs/FLUX.1-schnell", torch_dtype=torch.bfloat16
+    )
+inpaintpipe.enable_model_cpu_offload()
+inpaintpipe.enable_sequential_cpu_offload()
 
-# # Quantize and freeze the text_encoder_2
-# text_encoder_2 = img2img.text_encoder_2
-# quantize(text_encoder_2, weights=qfloat8)
-# freeze(text_encoder_2)
-# img2img.text_encoder_2 = text_encoder_2
+# Use the same pipeline for refiner
+inpaint_refiner = inpaintpipe
 
-# pipe = DiffusionPipeline.from_pretrained(
-#     "models/stable-diffusion-xl-base-1.0",
-#     torch_dtype=torch.float16,
-#     use_safetensors=True,
-#     variant="fp16",
-#     # safety_checker=None,
-# )  # todo try torch_dtype=float16
-pipe.watermark = None
+# Set main pipe to flux_pipe for backwards compatibility
+pipe = flux_pipe
 
 
-# deepcache
-# from DeepCache import DeepCacheSDHelper
-
-# helper = DeepCacheSDHelper(pipe=pipe)
-# helper.set_params(
-#     cache_interval=3,
-#     cache_branch_id=0,
-# )
-# helper.enable()
-# token merging
-# tomesd.apply_patch(pipe, ratio=0.2)  # light speedup
+def generate_controlnet_image_bytes(prompt: str, image: Image.Image, retries=3):
+    """Generate image from prompt and image path"""
+    if not custom_pipeline:
+        raise Exception("Pipeline not initialized")
+    image_bytes = custom_pipeline.generate(prompt=prompt, image=image)
+    return image_bytes
 
 
-refiner = DiffusionPipeline.from_pretrained(
-    # "stabilityai/stable-diffusion-xl-refiner-1.0",
-    # "dataautogpt3/OpenDalle",
-    model_name,
-    # "models/SSD-1B",
-    unet=pipe.unet,
-    text_encoder_2=pipe.text_encoder_2,
-    vae=pipe.vae,
-    torch_dtype=torch.float16,  # safer to use bfloat?
-    use_safetensors=True,
-    variant="fp16",  # remember not to download the big model
-)
+@app.get("/controlnet_image")
+def controlnet_image(prompt: str, image_path: str, save_path: str = "", retries=3):
+    """Generate image from prompt and image path"""
+    if not custom_pipeline:
+        return Response(status_code=500, content="Pipeline not initialized")
+    input_image = load_image(image_path)
+    image_bytes = generate_controlnet_image_bytes(
+        prompt=prompt, image=input_image, retries=retries
+    )
+    if not image_bytes:
+        return Response(status_code=500, content="Failed to generate image")
 
-# refiner = pipe  # same model in this case
-# refiner.scheduler = old_scheduler
-# tomesd.apply_patch(refiner, ratio=0.2)  # light speedup
-
-# refiner.schedu
-
-refiner.watermark = None
-# refiner.to("cuda")
-refiner.enable_model_cpu_offload()
-refiner.enable_sequential_cpu_offload()
-
-# {'scheduler', 'text_encoder', 'text_encoder_2', 'tokenizer', 'tokenizer_2', 'unet', 'vae'} can be passed in from existing model
-# inpaintpipe = StableDiffusionInpaintPipeline(**pipe.components)
-inpaintpipe = StableDiffusionXLInpaintPipeline.from_pretrained(
-    # "models/stable-diffusion-xl-base-1.0",
-    model_name,
-    torch_dtype=torch.float16,
-    variant="fp16",
-    use_safetensors=True,
-    scheduler=pipe.scheduler,
-    text_encoder=pipe.text_encoder,
-    text_encoder_2=pipe.text_encoder_2,
-    tokenizer=pipe.tokenizer,
-    tokenizer_2=pipe.tokenizer_2,
-    unet=pipe.unet,
-    vae=pipe.vae,
-    # load_connected_pipeline=
-)
-inpaintpipe.watermark = None
-# inpaintpipe.enable_model_cpu_offload()
-
-controlnet_conditioning_scale = 0.5  # recommended for good generalization
-controlnet = ControlNetModel.from_pretrained(
-    "diffusers/controlnet-canny-sdxl-1.0",
-    torch_dtype=torch.float16,
-    variant="fp16",
-)
-# controlnet.to("cuda")
-
-controlnetpipe = StableDiffusionXLControlNetPipeline.from_pretrained(
-    # "stabilityai/stable-diffusion-xl-base-1.0",
-    model_name,
-    controlnet=controlnet,
-    **pipe.components,
-)
-# controlnetpipe.to("cuda")
-controlnetpipe.watermark = None
-
-# efficiency
-controlnetpipe.enable_model_cpu_offload()
-controlnetpipe.enable_sequential_cpu_offload()
-
-controlnetpipe.enable_attention_slicing()
-controlnetpipe.enable_vae_slicing()
-
-# # Quantize and freeze the text_encoder
-# text_encoderz = controlnetpipe.text_encoder
-# quantize(text_encoderz, weights=qfloat8)
-# freeze(text_encoderz)
-# controlnetpipe.text_encoder = text_encoderz
-
-# # Quantize and freeze the text_encoder_2
-# text_encoder_2z = controlnetpipe.text_encoder_2
-# quantize(text_encoder_2z, weights=qfloat8)
-# freeze(text_encoder_2z)
-# controlnetpipe.text_encoder_2 = text_encoder_2z
-
-# unet = controlnetpipe.unet
-# quantize(unet, weights=qfloat8)
-# freeze(unet)
-# controlnetpipe.unet = unet
+    if save_path:
+        path_components = save_path.split("/")[0:-1]
+        final_name = save_path.split("/")[-1]
+        save_path = "/".join(path_components) + quote_plus(final_name)
+        if check_if_blob_exists(save_path):
+            return JSONResponse(
+                {"path": f"https://{BUCKET_NAME}/{BUCKET_PATH}/{save_path}"}
+            )
+        upload_to_bucket(save_path, image_bytes, is_bytesio=False)
+        return JSONResponse(
+            {"path": f"https://{BUCKET_NAME}/{BUCKET_PATH}/{save_path}"}
+        )
+    return StreamingResponse(content=iter([image_bytes]), media_type="image/webp")
 
 
-# # switch out to save gpu mem
-# del inpaintpipe.vae
-# del inpaintpipe.text_encoder_2
-# del inpaintpipe.text_encoder
-# del inpaintpipe.scheduler
-# del inpaintpipe.tokenizer
-# del inpaintpipe.tokenizer_2
-# del inpaintpipe.unet
-# inpaintpipe.vae = pipe.vae
-# inpaintpipe.text_encoder_2 = pipe.text_encoder_2
-# inpaintpipe.text_encoder = pipe.text_encoder
-# inpaintpipe.scheduler = pipe.scheduler
-# inpaintpipe.tokenizer = pipe.tokenizer
-# inpaintpipe.tokenizer_2 = pipe.tokenizer_2
-# inpaintpipe.unet = pipe.unet
-# todo this should work
-# inpaintpipe = StableDiffusionXLInpaintPipeline( # construct an inpainter using the existing model
-#     vae=pipe.vae,
-#     text_encoder_2=pipe.text_encoder_2,
-#     text_encoder=pipe.text_encoder,
-#     unet=pipe.unet,
-#     scheduler=pipe.scheduler,
-#     tokenizer=pipe.tokenizer,
-#     tokenizer_2=pipe.tokenizer_2,
-#     requires_aesthetics_score=False,
-# )
-# inpaintpipe.to("cuda")
-inpaintpipe.watermark = None
-# inpaintpipe.register_to_config(requires_aesthetics_score=False)
-
-# todo do we need this?
-inpaint_refiner = StableDiffusionXLInpaintPipeline.from_pretrained(
-    # "stabilityai/stable-diffusion-xl-refiner-1.0",
-    model_name,
-    text_encoder_2=inpaintpipe.text_encoder_2,
-    vae=inpaintpipe.vae,
-    torch_dtype=torch.float16,
-    use_safetensors=True,
-    variant="fp16",
-    tokenizer_2=refiner.tokenizer_2,
-    tokenizer=refiner.tokenizer,
-    scheduler=refiner.scheduler,
-    text_encoder=refiner.text_encoder,
-    unet=refiner.unet,
-)
-# del inpaint_refiner.vae
-# del inpaint_refiner.text_encoder_2
-# del inpaint_refiner.text_encoder
-# del inpaint_refiner.scheduler
-# del inpaint_refiner.tokenizer
-# del inpaint_refiner.tokenizer_2
-# del inpaint_refiner.unet
-# inpaint_refiner.vae = inpaintpipe.vae
-# inpaint_refiner.text_encoder_2 = inpaintpipe.text_encoder_2
-#
-# inpaint_refiner.text_encoder = refiner.text_encoder
-# inpaint_refiner.scheduler = refiner.scheduler
-# inpaint_refiner.tokenizer = refiner.tokenizer
-# inpaint_refiner.tokenizer_2 = refiner.tokenizer_2
-# inpaint_refiner.unet = refiner.unet
-
-# inpaint_refiner = StableDiffusionXLInpaintPipeline(
-#     text_encoder_2=inpaintpipe.text_encoder_2,
-#     vae=inpaintpipe.vae,
-#     # the rest from the existing refiner
-#     tokenizer_2=refiner.tokenizer_2,
-#     tokenizer=refiner.tokenizer,
-#     scheduler=refiner.scheduler,
-#     text_encoder=refiner.text_encoder,
-#     unet=refiner.unet,
-#     requires_aesthetics_score=False,
-# )
-# inpaint_refiner.to("cuda")
-inpaint_refiner.watermark = None
-# inpaint_refiner.register_to_config(requires_aesthetics_score=False)
-
-n_steps = 5
-n_refiner_steps = 10
-high_noise_frac = 0.8
-use_refiner = False
-
-
-# efficiency
-
-# inpaintpipe.enable_model_cpu_offload()
-inpaint_refiner.enable_model_cpu_offload()
-inpaint_refiner.enable_sequential_cpu_offload()
-# pipe.enable_model_cpu_offload()
-# refiner.enable_model_cpu_offload()
-# img2img.enable_model_cpu_offload()
-
-
-# pipe.enable_xformers_memory_efficient_attention()
-
-# attn
-# inpaintpipe.enable_xformers_memory_efficient_attention()
-# inpaint_refiner.enable_xformers_memory_efficient_attention()
-# pipe.enable_xformers_memory_efficient_attention()
-# refiner.enable_xformers_memory_efficient_attention()
-# img2img.enable_xformers_memory_efficient_attention()
-
-
-# CFG Scale: Use a CFG scale of 8 to 7
-# pipe.scheduler = KDPM2AncestralDiscreteScheduler.from_config(pipe.scheduler.config)
-
-# errors a bit
-# refiner.scheduler = KDPM2AncestralDiscreteScheduler.from_config(
-#     refiner.scheduler.config
-# )
-
-# Sampler: DPM++ 2M SDE
-# pipe.sa
-# Scheduler: Karras
-# img2img = StableDiffusionImg2ImgPipeline(**pipe.components)
-
-
-# if using torch < 2.0
-# pipe.enable_xformers_memory_efficient_attention()
-
-
-# pipe.unet = torch.compile(pipe.unet, mode="reduce-overhead", fullgraph=True, backend="eager")
-# this can cause errors on some inputs so consider disabling it
-# pipe.unet = torch.compile(pipe.unet)
-# refiner.unet = torch.compile(refiner.unet)#, mode="reduce-overhead", fullgraph=True)
-# compile the inpainters - todo reuse the other unets? swap out the models for others/del them so they share models and can be swapped efficiently
-inpaintpipe.unet = pipe.unet
-inpaint_refiner.unet = refiner.unet
-# inpaintpipe.unet = torch.compile(inpaintpipe.unet)
-# inpaint_refiner.unet = torch.compile(inpaint_refiner.unet)
-
-# img2img.unet = pipe.unet
-# img2img.unet = torch.compile(img2img.unet, mode="reduce-overhead", fullgraph=True, backend="eager")
-
-app = FastAPI(
-    # openapi_url="/static/openapi.json",
-    docs_url="/swagger-docs",
-    redoc_url="/redoc",
-    title="Generate Images Netwrck API",
-    description="Character Chat API",
-    # root_path="https://api.text-generator.io",
-    version="1",
-)
-app.add_middleware(GZipMiddleware, minimum_size=1000)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Simple health check endpoint
-@app.get("/healthz")
-async def healthz():
-    return {"status": "ok"}
-
-negative = "3 or 4 ears, never BUT ONE EAR, blurry, unclear, bad anatomy, extra limbs, poorly drawn face, poorly drawn hands, missing fingers, mangled teeth, weird teeth, poorly drawn eyes, blurry eyes, tan skin, oversaturated, teeth, poorly drawn, ugly, closed eyes, 3D, weird neck, duplicate, morbid, mutilated, out of frame, extra fingers, mutated hands, poorly drawn hands, poorly drawn face, mutation, deformed, blurry, bad anatomy, bad proportions, extra limbs, cloned face, disfigured, extra limbs, gross proportions, malformed limbs, missing arms, missing legs, extra arms, extra legs, mutated hands, fused fingers, too many fingers, text, logo, wordmark, writing, signature, blurry, bad anatomy, extra limbs, poorly drawn face, poorly drawn hands, missing fingers, Removed From Image Removed From Image flowers, Deformed, blurry, bad anatomy, disfigured, poorly drawn face, mutation, mutated, extra limb, ugly, poorly drawn hands, missing limb, blurry, floating limbs, disconnected limbs, malformed hands, blur, long body, ((((mutated hands and fingers)))), cartoon, 3d ((disfigured)), ((bad art)), ((deformed)), ((extra limbs)), ((dose up)), ((b&w)), Wierd colors, blurry, (((duplicate))), ((morbid)), ((mutilated)), [out of frame], extra fingers, mutated hands, ((poorly drawn hands)), (poorly drawn face)), (((mutation))), (((deformed))), ((ugly)), blurry, ((bad anatomy)), (((bad proportions))), (extra limbs)), cloned face, (((disfigured))), out of frame ugly, extra limbs (bad anatomy), gross proportions (malformed limbs), ((missing arms)), ((missing legs)), (((extra arms))), (((extra legs))), mutated hands, (fused fingers), (too many fingers), (((long neck))), Photoshop, videogame, ugly, tiling, poorly drawn hands, poorly drawn feet, poorly drawn face, out of frame, mutation, mutated, extra limbs, extra legs, extra arms, disfigured deformed cross-eye, ((body out of )), blurry, bad art, bad anatomy, 3d render, two faces, duplicate, coppy, multi, two, disfigured, kitsch, ugly, oversaturated, grain, low-res, Deformed, blurry, bad anatomy, disfigured, poorly drawn face, mutation, mutated, extra limb, ugly, poorly drawn hands, missing limb, blurry, floating limbs, disconnected limbs, malformed hands, blur, out of focus, long neck, long body, ugly, disgusting, poorly drawn, childish, mutilated, mangled, old ugly, tiling, poorly drawn hands, poorly drawn feet, poorly drawn face, out of frame, extra limbs, disfigured, deformed, body out of frame, blurry, bad anatomy, blurred, watermark, grainy, signature, cut off, draf, blurry, bad anatomy, extra limbs, poorly drawn face, poorly drawn hands, missing fingers"
-negative2 = "ugly, deformed, noisy, blurry, distorted, out of focus, bad anatomy, extra limbs, poorly drawn face, poorly drawn hands, missing fingers"
-extra_pipe_args = {
-    "guidance_scale": 1,
-    "negative_prompt": negative,
-    "negative_prompt2": negative2,
-}
-extra_refiner_pipe_args = {
-    "guidance_scale": 7,
-    "negative_prompt": negative,
-    "negative_prompt2": negative2,
-}
-
-
-@app.get("/make_image")
-def make_image(prompt: str, save_path: str = ""):
+@app.get("/text_to_image")
+def text_to_image(
+    prompt: str,
+    width: int = 1024,
+    height: int = 1024,
+    save_path: str = "",
+    n_steps: int = 8,
+    extra_pipe_args: dict = None,
+):
+    if extra_pipe_args is None:
+        extra_pipe_args = {}
     if Path(save_path).exists():
         return FileResponse(save_path, media_type="image/png")
     with torch.inference_mode():
@@ -535,7 +260,7 @@ async def style_transfer_and_upload_image(
     strength: float = 0.6,
     canny: bool = False,
 ):
-    canny=True # tmp only canny is working
+    canny = True  # tmp only canny is working
     # todo also accept image bytes directly?
     path_components = save_path.split("/")[0:-1]
     final_name = save_path.split("/")[-1]
@@ -546,9 +271,6 @@ async def style_transfer_and_upload_image(
         prompt, image_url, save_path, strength, canny
     )
     return JSONResponse({"path": path})
-
-
-from fastapi import File, UploadFile
 
 
 @app.post("/style_transfer_bytes_and_upload_image")
@@ -568,7 +290,7 @@ async def style_transfer_bytes_and_upload_image(
         canny_bool = True
     else:
         canny_bool = False
-    canny_bool=True # tmp only canny is working
+    canny_bool = True  # tmp only canny is working
 
     if not path_components:
         path_components = []
@@ -674,7 +396,12 @@ def style_transfer_image_from_prompt(
     canny=False,
     input_pil=None,
     retries=3,
+    use_refiner=False,
+    n_refiner_steps=20,
+    extra_refiner_pipe_args=None,
 ):
+    if extra_refiner_pipe_args is None:
+        extra_refiner_pipe_args = {}
     prompt = shorten_too_long_text(prompt)
 
     if not is_defined(input_pil):
@@ -697,7 +424,7 @@ def style_transfer_image_from_prompt(
                 image = flux_controlnetpipe(
                     prompt=prompt,
                     image=canny_image,
-                    num_inference_steps=n_steps,
+                    num_inference_steps=8,
                     guidance_scale=0.0,
                     generator=generator,
                     max_sequence_length=256,
@@ -708,7 +435,7 @@ def style_transfer_image_from_prompt(
                     width=input_pil.width,
                     height=input_pil.height,
                     guidance_scale=0.0,
-                    num_inference_steps=n_steps,
+                    num_inference_steps=8,
                     generator=generator,
                     max_sequence_length=256,
                 ).images[0]
@@ -719,11 +446,15 @@ def style_transfer_image_from_prompt(
             logger.warning(
                 f"Flux style transfer failed on attempt {attempt + 1}/{retries}: {err}"
             )
-            prompt = remove_stopwords(prompt) if attempt == 0 else shorten_prompt_for_retry(prompt)
+            prompt = (
+                remove_stopwords(prompt)
+                if attempt == 0
+                else shorten_prompt_for_retry(prompt)
+            )
             if not prompt:
                 raise err
     # todo refine
-    # if image != None and use_refiner:
+    # if image is not None and use_refiner:
     #     image = refiner(
     #         prompt=prompt,
     #         # width=block_width,
@@ -814,7 +545,10 @@ def create_image_from_prompt(
     if width != block_width or height != block_height:
         scale_up_ratio = max(width / block_width, height / block_height)
         image = image.resize(
-            (math.ceil(block_width * scale_up_ratio), math.ceil(height * scale_up_ratio))
+            (
+                math.ceil(block_width * scale_up_ratio),
+                math.ceil(height * scale_up_ratio),
+            )
         )
         image = image.crop((0, 0, width, height))
 
@@ -828,13 +562,12 @@ def create_image_from_prompt(
 
     return image_to_bytes(image)
 
+
 # multiprocessing.set_start_method('spawn', True)
 # processes_pool = Pool(1) # cant do too much at once or OOM errors happen
 # def create_image_from_prompt_sync(prompt):
 #     """have to call this sync to avoid OOM errors"""
 #     return processes_pool.apply_async(create_image_from_prompt, args=(prompt,), ).wait()
-
-
 
 
 def image_to_bytes(image):
@@ -869,7 +602,6 @@ def inpaint_image_from_prompt(prompt, image_url: str, mask_url: str, retries=3):
     num_inference_steps = 40
     high_noise_frac = 0.7
 
-    generator = torch.Generator("cpu").manual_seed(0)
     for attempt in range(retries + 1):
         try:
             image = inpaintpipe(
@@ -888,10 +620,14 @@ def inpaint_image_from_prompt(prompt, image_url: str, mask_url: str, retries=3):
             logger.warning(
                 f"Inpainting failed on attempt {attempt + 1}/{retries}: {e}"
             )
-            prompt = remove_stopwords(prompt) if attempt == 0 else shorten_prompt_for_retry(prompt)
+            prompt = (
+                remove_stopwords(prompt)
+                if attempt == 0
+                else shorten_prompt_for_retry(prompt)
+            )
             if not prompt:
                 raise e
-    if image != None:
+    if image is not None:
         image = inpaint_refiner(
             prompt=prompt,
             image=image,
@@ -902,7 +638,7 @@ def inpaint_image_from_prompt(prompt, image_url: str, mask_url: str, retries=3):
     # try:
     #     # gc.collect()
     #     torch.cuda.empty_cache()
-    # except Exception as e:
+    # except Exception:
     #     traceback.print_exc()
     #     logger.info("restarting server to fix cuda issues (device side asserts)")
     #     # todo fix device side asserts instead of restart to fix

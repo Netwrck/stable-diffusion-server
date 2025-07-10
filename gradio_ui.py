@@ -1,8 +1,11 @@
 import gradio as gr
 from PIL import Image
 
-from main import create_image_from_prompt, style_transfer_image_from_prompt
-from PIL import Image
+from main import (
+    create_image_from_prompt,
+    style_transfer_image_from_prompt,
+    generate_controlnet_image_bytes,
+)
 
 # This demo needs to be run from the repo folder.
 # python gradio_ui.py
@@ -35,6 +38,20 @@ def style_transfer_make_images(image_array, text, strength):
         images.append(pil_image)
         yield images
     return images
+
+
+def make_controlnet_images(image_array, text):
+    """Generate images using ControlNet."""
+    image = Image.fromarray(image_array)
+    prompt = text
+    bio = generate_controlnet_image_bytes(prompt, image)
+    save_name = prompt.replace(" ", "-")
+    save_path = f"outputs/{save_name}.webp"
+    with open(save_path, "wb") as f:
+        f.write(bio)
+
+    pil_image = Image.open(save_path)
+    return [pil_image]
 
 
 def make_images(text, width, height, steps, guidance_scale):
@@ -92,6 +109,13 @@ with gr.Blocks() as _block:
     with gr.Tab("Style Transfer"):
         style_transfer_interface_inputs = [image_input, prompt, strength]
         demo_style_transfer = gr.Interface(fn=style_transfer_make_images, inputs=style_transfer_interface_inputs, outputs=gallery)
+    with gr.Tab("ControlNet"):
+        controlnet_interface_inputs = [image_input, prompt]
+        demo_controlnet = gr.Interface(
+            fn=make_controlnet_images,
+            inputs=controlnet_interface_inputs,
+            outputs=gallery,
+        )
     if __name__ == "__main__":
         # demo.launch()
         _block.launch()
