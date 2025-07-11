@@ -180,7 +180,7 @@ def load_flow_model2(name: str, device: str | torch.device = "cuda", hf_download
         and configs[name].repo_flow is not None
         and hf_download
     ):
-        ckpt_path = hf_hub_download(configs[name].repo_id, configs[name].repo_flow.replace("sft", "safetensors"))
+        ckpt_path = hf_hub_download(configs[name].repo_id, configs[name].repo_flow.replace("sft", "safetensors"), )
 
     with torch.device("meta" if ckpt_path is not None else device):
         model = Flux(configs[name].params)
@@ -204,8 +204,7 @@ def load_flow_model_quintized(name: str, device: str | torch.device = "cuda", hf
         and hf_download
     ):
         ckpt_path = hf_hub_download(configs[name].repo_id, configs[name].repo_flow)
-    json_path = hf_hub_download(configs[name].repo_id, 'flux_dev_quantization_map.json')
-
+    json_path = hf_hub_download(configs[name].repo_id, 'flux_dev_quantization_map.json', )
 
     model = Flux(configs[name].params).to(torch.bfloat16)
 
@@ -217,6 +216,7 @@ def load_flow_model_quintized(name: str, device: str | torch.device = "cuda", hf
     requantize(model, sd, quantization_map, device=device)
 
     return model
+
 def load_controlnet(name, device, transformer=None):
     with torch.device(device):
         controlnet = ControlNetFlux(configs[name].params)

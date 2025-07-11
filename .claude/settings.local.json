@@ -3,7 +3,8 @@
     "allow": [
       "Bash(uv pip:*)",
       "Bash(source:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(timeout:*)"
     ],
     "deny": []
   }

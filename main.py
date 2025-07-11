@@ -66,39 +66,72 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-# Remove all Proteus model loading - using only Flux models now
-# pipe = None  # Will be set to flux_pipe below
 
-# Load Flux Schnell pipeline for efficient text-to-image
+# Set cache directory for model downloads
+os.environ["TRANSFORMERS_CACHE"] = os.getenv("TRANSFORMERS_CACHE", "./models")
+os.environ["HF_HOME"] = os.getenv("HF_HOME", "./models")
+
+# Load Flux Schnell pipeline - prefer local, fallback to download
 try:
     flux_pipe = FluxPipeline.from_pretrained(
-        "models/FLUX.1-schnell", torch_dtype=torch.bfloat16
+        "models/FLUX.1-schnell", 
+        torch_dtype=torch.bfloat16
     )
 except OSError:
-    # Fallback to online model if local not available
+    # Fallback to downloading from hub (uses TRANSFORMERS_CACHE env var)
     flux_pipe = FluxPipeline.from_pretrained(
-        "black-forest-labs/FLUX.1-schnell", torch_dtype=torch.bfloat16
+        "black-forest-labs/FLUX.1-schnell", 
+        torch_dtype=torch.bfloat16
     )
 flux_pipe.enable_model_cpu_offload()
 flux_pipe.enable_sequential_cpu_offload()
+# Disable DFloat11 for now - causing CUDA memory issues
+# try:
+#     from dfloat11 import DFloat11Model
+#     dfloat_path = os.getenv("DF11_MODEL_PATH", "models/DFloat11__FLUX.1-schnell-DF11")
+#     DFloat11Model.from_pretrained(dfloat_path, device="cpu", bfloat16_model=flux_pipe.transformer)
+# except Exception as e:
+#     logger.error(f"Failed to load DFloat11 weights: {e}")
+
 try:
-    from dfloat11 import DFloat11Model
-
-    dfloat_path = os.getenv("DF11_MODEL_PATH", "models/DFloat11__FLUX.1-schnell-DF11")
-    DFloat11Model.from_pretrained(
-        dfloat_path,
-        device="cpu",
-        bfloat16_model=flux_pipe.transformer,
+    # Try to load ControlNet from models/ directory first (custom model)
+    if os.path.exists("models/controlnet-line.safetensors"):
+        flux_controlnet = ControlNetModel.from_single_file(
+            "models/controlnet-line.safetensors", torch_dtype=torch.bfloat16
+        )
+    else:
+        # Fallback to downloading from Hub (uses TRANSFORMERS_CACHE env var)
+        flux_controlnet = ControlNetModel.from_pretrained(
+            "XLabs-AI/flux-controlnet-canny-v3",
+            torch_dtype=torch.bfloat16
+        )
+    
+    flux_controlnetpipe = FluxControlNetPipeline(
+        controlnet=flux_controlnet, **flux_pipe.components
     )
+    flux_controlnetpipe.enable_model_cpu_offload()
+    flux_controlnetpipe.enable_sequential_cpu_offload()
+    try:
+        lora_path = os.getenv(
+            "CONTROLNET_LORA", "black-forest-labs/flux-controlnet-line-lora"
+        )
+        flux_controlnetpipe.load_lora_weights(lora_path, adapter_name="line")
+        flux_controlnetpipe.set_adapters(["line"], adapter_weights=[1.0])
+    except Exception as e:
+        logger.error(f"Failed to load ControlNet LoRA: {e}")
 except Exception as e:
-    logger.error(f"Failed to load DFloat11 weights: {e}")
-
-# Disable ControlNet for now to focus on getting basic functionality working
-flux_controlnetpipe = None
+    logger.error(f"Failed to load Flux ControlNet: {e}")
+    flux_controlnetpipe = None
 
 
-# Disable custom pipeline for now to avoid T5 OOM issues
-custom_pipeline = None
+try:
+    custom_pipeline = CustomPipeline(name="flux-schnell")
+    # Only load custom controlnet if the specific safetensors file exists
+    if os.path.exists("models/controlnet.safetensors"):
+        custom_pipeline.load_controlnet("models/controlnet.safetensors")
+except Exception as e:
+    logger.error(f"Failed to load custom pipeline: {e}")
+    custom_pipeline = None
 
 
 # quantizing
@@ -609,8 +642,8 @@ def inpaint_image_from_prompt(prompt, image_url: str, mask_url: str, retries=3):
                 image=init_image,
                 mask_image=mask_image,
                 num_inference_steps=num_inference_steps,
-                denoising_start=high_noise_frac,
-                output_type="latent",
+                strength=1.0 - high_noise_frac,  # Convert denoising_start to strength
+                output_type="pil",  # Flux doesn't support latent output
             ).images[0]
             break
         except Exception as e:
@@ -633,7 +666,7 @@ def inpaint_image_from_prompt(prompt, image_url: str, mask_url: str, retries=3):
             image=image,
             mask_image=mask_image,
             num_inference_steps=num_inference_steps,
-            denoising_start=high_noise_frac,
+            strength=1.0 - high_noise_frac,  # Convert denoising_start to strength
         ).images[0]
     # try:
     #     # gc.collect()

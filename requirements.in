@@ -74,6 +74,7 @@ DeepCache
 tomesd
 peft>=0.15.0
 gradio
+boto3
 pillow-avif-plugin
 optimum-quanto
 xformers
