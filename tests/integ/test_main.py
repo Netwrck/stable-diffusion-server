@@ -67,8 +67,8 @@ def test_style_transfer_from_prompt_sync_control_pil():
     # img = Image.open("tests/owl.png").convert("RGB")
 
     image_bytes = style_transfer_image_from_prompt(
-        "a owl cinematic wonderful realistic owl perching on log", None, 0.6,
-        True, img)
+        "a owl cinematic wonderful realistic owl perching on log", img, 0.6,
+        True)
     # save to disk
 
     with open("results/teststyletransfer-cnet-owl.webp", "wb") as f:
@@ -83,8 +83,8 @@ def test_style_transfer_from_prompt_sync_control_pil_dude():
     # img = Image.open("tests/owl.png").convert("RGB")
 
     image_bytes = style_transfer_image_from_prompt(
-        "starry night van gogh", None, 0.6,
-        True, img)
+        "starry night van gogh", img, 0.6,
+        True)
     # save to disk
 
     with open("results/teststyletransfer-cnet-starry.webp", "wb") as f:
@@ -98,8 +98,8 @@ def test_style_transfer_from_prompt_sync_control_avif():
     # img = Image.open("tests/owl.png").convert("RGB")
 
     image_bytes = style_transfer_image_from_prompt(
-        "a owl cinematic wonderful realistic owl perching on log", None, 0.6,
-        True, img)
+        "a owl cinematic wonderful realistic owl perching on log", img, 0.6,
+        True)
     # save to disk
 
     with open("results/teststyletransfer-cnet-owl-again.webp", "wb") as f:

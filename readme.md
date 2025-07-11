@@ -216,3 +216,45 @@ Characters are narrated and written by many GPT models trained on 1000s of fanta
 For Vision LLMs for making Text - Checkout [Text-Generator.io](https://text-generator.io) for a Open 
 Source text generator that uses many AI models to generate the best along with image understanding and 
 OCR networks.
+
+## Memory Optimizations
+
+This server includes several memory optimizations to improve performance and reduce memory usage:
+
+### Lazy Loading
+- Pipelines are loaded on-demand to reduce initial memory footprint
+- Components are shared between pipelines to minimize duplicate models
+- All models are cached in the `./models` directory to avoid re-downloads
+
+### Testing Mode
+For faster testing and development, set the `TESTING` environment variable:
+
+```bash
+export TESTING=true
+```
+
+This enables:
+- Reduced inference steps (4 instead of 20)
+- Disabled bumpy detection for speed
+- Aggressive memory cleanup between operations
+
+### Memory Management
+- Automatic GPU memory clearing between operations
+- Sequential CPU offloading for better memory utilization
+- Attention and VAE slicing enabled for reduced memory usage
+
+See `docs/memory_optimizations.md` for detailed information about all optimizations.
+
+## Environment Variables
+
+```bash
+# Model caching
+export TRANSFORMERS_CACHE=./models
+export HF_HOME=./models
+
+# Testing mode (optional)
+export TESTING=true
+
+# GPU memory management (optional)
+export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
+```

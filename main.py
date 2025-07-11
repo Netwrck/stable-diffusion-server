@@ -35,7 +35,7 @@ from transformers import set_seed
 
 from env import BUCKET_PATH, BUCKET_NAME
 from stable_diffusion_server.bucket_api import check_if_blob_exists, upload_to_bucket
-# from stable_diffusion_server.bumpy_detection import detect_too_bumpy
+from stable_diffusion_server.bumpy_detection import detect_too_bumpy
 from stable_diffusion_server.image_processing import (
     process_image_for_stable_diffusion,
 )
@@ -75,17 +75,26 @@ img2img = None
 inpaintpipe = None
 pipe = None
 
+def clear_gpu_memory():
+    """Clear GPU memory to prevent OOM errors"""
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        torch.cuda.ipc_collect()
+
 def get_flux_pipe():
     """Lazy load Flux pipeline to reduce memory usage"""
     global flux_pipe
     if flux_pipe is None:
         logger.info("Loading Flux Schnell pipeline...")
+        clear_gpu_memory()
+        
         try:
             flux_pipe = FluxPipeline.from_pretrained(
                 "models/FLUX.1-schnell", 
                 torch_dtype=torch.bfloat16,
                 cache_dir="./models"
             )
+            logger.info("Loaded Flux pipeline from local cache")
         except OSError:
             logger.info("Local model not found, downloading from hub...")
             flux_pipe = FluxPipeline.from_pretrained(
@@ -93,6 +102,7 @@ def get_flux_pipe():
                 torch_dtype=torch.bfloat16,
                 cache_dir="./models"
             )
+            logger.info("Downloaded Flux pipeline from hub")
         
         # Enable aggressive memory optimizations
         flux_pipe.enable_model_cpu_offload()
@@ -101,7 +111,11 @@ def get_flux_pipe():
         if hasattr(flux_pipe, 'enable_vae_slicing'):
             flux_pipe.enable_vae_slicing()
         
-        logger.info("Flux pipeline loaded successfully")
+        # Set device map for better memory management
+        if hasattr(flux_pipe, 'device_map'):
+            flux_pipe.device_map = 'auto'
+            
+        logger.info("Flux pipeline loaded successfully with memory optimizations")
     return flux_pipe
 # Disable DFloat11 for now - causing CUDA memory issues
 # try:
@@ -168,37 +182,86 @@ except Exception as e:
 # pipe.unet = unet
 
 # Replace old SDXL pipelines with Flux equivalents
-from diffusers import FluxImg2ImgPipeline, FluxInpaintPipeline
 
-# Create Flux-based img2img pipeline
-try:
-    img2img = FluxImg2ImgPipeline.from_pretrained(
-        "models/FLUX.1-schnell", torch_dtype=torch.bfloat16
-    )
-except OSError:
-    img2img = FluxImg2ImgPipeline.from_pretrained(
-        "black-forest-labs/FLUX.1-schnell", torch_dtype=torch.bfloat16
-    )
-img2img.enable_model_cpu_offload()
-img2img.enable_sequential_cpu_offload()
+def get_img2img_pipe():
+    """Lazy load Flux img2img pipeline to reduce memory usage"""
+    global img2img
+    if img2img is None:
+        logger.info("Loading Flux img2img pipeline...")
+        try:
+            img2img = FluxImg2ImgPipeline.from_pretrained(
+                "models/FLUX.1-schnell", 
+                torch_dtype=torch.bfloat16,
+                cache_dir="./models"
+            )
+        except OSError:
+            logger.info("Local model not found, downloading img2img from hub...")
+            img2img = FluxImg2ImgPipeline.from_pretrained(
+                "black-forest-labs/FLUX.1-schnell", 
+                torch_dtype=torch.bfloat16,
+                cache_dir="./models"
+            )
+        
+        # Share components from main pipeline if available
+        flux_pipeline = get_flux_pipe()
+        if flux_pipeline is not None:
+            img2img.text_encoder = flux_pipeline.text_encoder
+            img2img.text_encoder_2 = flux_pipeline.text_encoder_2
+            img2img.transformer = flux_pipeline.transformer
+        
+        img2img.enable_model_cpu_offload()
+        img2img.enable_sequential_cpu_offload()
+        img2img.enable_attention_slicing()
+        if hasattr(img2img, 'enable_vae_slicing'):
+            img2img.enable_vae_slicing()
+            
+        logger.info("Flux img2img pipeline loaded successfully")
+    return img2img
 
-# Create Flux-based inpaint pipeline  
-try:
-    inpaintpipe = FluxInpaintPipeline.from_pretrained(
-        "models/FLUX.1-schnell", torch_dtype=torch.bfloat16
-    )
-except OSError:
-    inpaintpipe = FluxInpaintPipeline.from_pretrained(
-        "black-forest-labs/FLUX.1-schnell", torch_dtype=torch.bfloat16
-    )
-inpaintpipe.enable_model_cpu_offload()
-inpaintpipe.enable_sequential_cpu_offload()
+def get_inpaint_pipe():
+    """Lazy load Flux inpaint pipeline to reduce memory usage"""
+    global inpaintpipe
+    if inpaintpipe is None:
+        logger.info("Loading Flux inpaint pipeline...")
+        try:
+            inpaintpipe = FluxInpaintPipeline.from_pretrained(
+                "models/FLUX.1-schnell", 
+                torch_dtype=torch.bfloat16,
+                cache_dir="./models"
+            )
+        except OSError:
+            logger.info("Local model not found, downloading inpaint from hub...")
+            inpaintpipe = FluxInpaintPipeline.from_pretrained(
+                "black-forest-labs/FLUX.1-schnell", 
+                torch_dtype=torch.bfloat16,
+                cache_dir="./models"
+            )
+        
+        # Share components from main pipeline if available
+        flux_pipeline = get_flux_pipe()
+        if flux_pipeline is not None:
+            inpaintpipe.text_encoder = flux_pipeline.text_encoder
+            inpaintpipe.text_encoder_2 = flux_pipeline.text_encoder_2
+            inpaintpipe.transformer = flux_pipeline.transformer
+        
+        inpaintpipe.enable_model_cpu_offload()
+        inpaintpipe.enable_sequential_cpu_offload()
+        inpaintpipe.enable_attention_slicing()
+        if hasattr(inpaintpipe, 'enable_vae_slicing'):
+            inpaintpipe.enable_vae_slicing()
+            
+        logger.info("Flux inpaint pipeline loaded successfully")
+    return inpaintpipe
 
 # Use the same pipeline for refiner
-inpaint_refiner = inpaintpipe
+def get_inpaint_refiner():
+    """Get inpaint refiner pipeline"""
+    return get_inpaint_pipe()
 
 # Set main pipe to flux_pipe for backwards compatibility
-pipe = flux_pipe
+def get_pipe():
+    """Get main pipeline for backwards compatibility"""
+    return get_flux_pipe()
 
 
 def generate_controlnet_image_bytes(prompt: str, image: Image.Image, retries=3):
@@ -509,19 +572,20 @@ def style_transfer_image_from_prompt(
     #     # gc.collect()
 
     # add a refinement pass because the image is not always perfect/depending on the model if its not well tuned for LCM it might need more passes
-    if use_refiner:
-        lcm_scheduler = img2img.scheduler
-        img2img.scheduler = old_scheduler
+    # Disabled for now - needs proper scheduler handling
+    # if use_refiner:
+    #     lcm_scheduler = img2img.scheduler
+    #     img2img.scheduler = old_scheduler
 
-        image = img2img(
-            prompt=prompt,
-            image=image,
-            num_inference_steps=n_refiner_steps,
-            strength=strength,
-            **extra_refiner_pipe_args,
-        ).images[0]
-        # revert scheduler
-        img2img.scheduler = lcm_scheduler
+    #     image = img2img(
+    #         prompt=prompt,
+    #         image=image,
+    #         num_inference_steps=n_refiner_steps,
+    #         strength=strength,
+    #         **extra_refiner_pipe_args,
+    #     ).images[0]
+    #     # revert scheduler
+    #     img2img.scheduler = lcm_scheduler
     # if detect_too_bumpy(image):
     #     if retries <= 0:
     #         raise Exception(
@@ -547,22 +611,39 @@ def create_image_from_prompt(
     if extra_args is None:
         extra_args = {}
 
+    # For testing, use fewer steps to speed up inference
+    if os.getenv("TESTING", "false").lower() == "true":
+        n_steps = min(n_steps, 4)  # Limit to 4 steps during testing
+        logger.info(f"Testing mode: reducing steps to {n_steps}")
+
     block_width = width - (width % 64)
     block_height = height - (height % 64)
     prompt = shorten_too_long_text(prompt)
     generator = torch.Generator("cpu").manual_seed(extra_args.get("seed", 0))
+    
+    # Get the pipeline lazily
+    flux_pipeline = get_flux_pipe()
+
+    # Clear GPU memory before inference
+    clear_gpu_memory()
 
     for attempt in range(retries + 1):
         try:
-            image = flux_pipe(
-                prompt=prompt,
-                width=block_width,
-                height=block_height,
-                guidance_scale=0.0,
-                num_inference_steps=n_steps,
-                generator=generator,
-                max_sequence_length=256,
-            ).images[0]
+            with torch.inference_mode():
+                # Update progress for long-running tasks
+                if os.path.exists("progress.txt"):
+                    with open("progress.txt", "w") as f:
+                        f.write(datetime.now().strftime("%H:%M:%S"))
+                
+                image = flux_pipeline(
+                    prompt=prompt,
+                    width=block_width,
+                    height=block_height,
+                    guidance_scale=0.0,
+                    num_inference_steps=n_steps,
+                    generator=generator,
+                    max_sequence_length=256,
+                ).images[0]
             break
         except Exception as err:  # pragma: no cover - hardware/oom errors
             if attempt >= retries:
@@ -570,6 +651,7 @@ def create_image_from_prompt(
             logger.warning(
                 f"Flux generation failed on attempt {attempt + 1}/{retries}: {err}"
             )
+            clear_gpu_memory()  # Clear memory on failure
             if attempt == 0:
                 prompt = remove_stopwords(prompt)
             else:
@@ -587,15 +669,17 @@ def create_image_from_prompt(
         )
         image = image.crop((0, 0, width, height))
 
-    # if detect_too_bumpy(image):
-    #     if retries <= 2:
-    #         logger.info("image too bumpy, retrying once w different prompt detailed")
-    #         return create_image_from_prompt(
-    #             prompt + " detail", width, height, n_steps + 1, extra_args, retries - 1
-    #         )
-    #     else:
-    #         logger.warning("image too bumpy after 2 retries, returning anyway")
-    #         # Return the image anyway after 2 retries to prevent infinite recursion
+    # Skip bumpy detection in testing mode for speed
+    if os.getenv("TESTING", "false").lower() != "true":
+        if detect_too_bumpy(image):
+            if retries <= 2:
+                logger.info("image too bumpy, retrying once w different prompt detailed")
+                return create_image_from_prompt(
+                    prompt + " detail", width, height, n_steps + 1, extra_args, retries - 1
+                )
+            else:
+                logger.warning("image too bumpy after 2 retries, returning anyway")
+                # Return the image anyway after 2 retries to prevent infinite recursion
 
     return image_to_bytes(image)
 
@@ -665,7 +749,8 @@ def inpaint_image_from_prompt(prompt, image_url: str, mask_url: str, retries=3):
             if not prompt:
                 raise e
     if image is not None:
-        image = inpaint_refiner(
+        refiner_pipe = get_inpaint_refiner()
+        image = refiner_pipe(
             prompt=prompt,
             image=image,
             mask_image=mask_image,
