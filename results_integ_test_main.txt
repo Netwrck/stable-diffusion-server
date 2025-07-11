@@ -4,31 +4,4 @@ cachedir: .pytest_cache
 rootdir: /home/lee/code/sdif
 configfile: pytest.ini
 plugins: typeguard-2.12.1, anyio-4.5.2, env-0.8.1, asyncio-0.15.1, hydra-core-1.0.6
-collecting ... collected 0 items / 1 error
-
-==================================== ERRORS ====================================
-__________________ ERROR collecting tests/integ/test_main.py ___________________
-ImportError while importing test module '/home/lee/code/sdif/tests/integ/test_main.py'.
-Hint: make sure your test modules/packages have valid Python names.
-Traceback:
-../../.pyenv/versions/3.8.3/lib/python3.8/importlib/__init__.py:127: in import_module
-    return _bootstrap._gcd_import(name[level:], package, level)
-tests/integ/test_main.py:6: in <module>
-    from main import (
-E   ModuleNotFoundError: No module named 'main'
-=============================== warnings summary ===============================
-../../.pyenv/versions/3.8.3/lib/python3.8/site-packages/_pytest/config/__init__.py:1441
-  /home/lee/.pyenv/versions/3.8.3/lib/python3.8/site-packages/_pytest/config/__init__.py:1441: PytestConfigWarning: Unknown config option: env_files
-  
-    self._warn_or_fail_if_strict(f"Unknown config option: {key}\n")
-
-../../.pyenv/versions/3.8.3/lib/python3.8/site-packages/_pytest/config/__init__.py:1441
-  /home/lee/.pyenv/versions/3.8.3/lib/python3.8/site-packages/_pytest/config/__init__.py:1441: PytestConfigWarning: Unknown config option: env_override_existing_values
-  
-    self._warn_or_fail_if_strict(f"Unknown config option: {key}\n")
-
--- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-=========================== short test summary info ============================
-ERROR tests/integ/test_main.py
-!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
-========================= 2 warnings, 1 error in 0.16s =========================
+collecting ... 
