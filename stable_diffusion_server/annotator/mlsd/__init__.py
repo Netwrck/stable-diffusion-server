@@ -22,7 +22,7 @@ class MLSDdetector:
         if not os.path.exists(model_path):
             model_path = hf_hub_download("lllyasviel/Annotators", "mlsd_large_512_fp32.pth")
         model = MobileV2_MLSD_Large()
-        model.load_state_dict(torch.load(model_path), strict=True)
+        model.load_state_dict(torch.load(model_path, weights_only=False), strict=True)
         self.model = model.cuda().eval()
 
     def __call__(self, input_image, thr_v, thr_d):

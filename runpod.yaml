@@ -1,0 +1,20 @@
+imageName: yourname/sd-server:latest
+gpuTypeId: 509   # RTX 5090
+workerQueue: default
+minWorkers: 0
+maxWorkers: 4
+startCommand: ["python", "rp_handler.py"]
+containerDiskInGb: 150
+memoryInGb: 30
+vcpuCount: 8
+env:
+  - name: MODE_TO_RUN
+    value: "serverless"
+  - name: MODEL_NAME
+    value: "black-forest-labs/FLUX.1-schnell"
+  - name: TRANSFORMERS_CACHE
+    value: "./models"
+  - name: HF_HOME
+    value: "./models"
+  - name: PYTHONUNBUFFERED
+    value: "1"

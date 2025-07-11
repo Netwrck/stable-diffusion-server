@@ -44,7 +44,7 @@ def load_checkpoint(local_path, repo_id, name):
             checkpoint = load_safetensors(local_path)
         else:
             print(f"Loading checkpoint from {local_path}")
-            checkpoint = torch.load(local_path, map_location='cpu')
+            checkpoint = torch.load(local_path, map_location='cpu', weights_only=False)
     elif repo_id is not None and name is not None:
         print(f"Loading checkpoint {name} from repo id {repo_id}")
         checkpoint = load_from_repo_id(repo_id, name)

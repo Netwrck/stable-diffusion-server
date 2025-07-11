@@ -4,6 +4,12 @@ services:
     build:
       context: .
     image: sd-server:local
+    environment:
+      - MODE_TO_RUN=api
+      - MODEL_NAME=black-forest-labs/FLUX.1-schnell
+      - TRANSFORMERS_CACHE=./models
+      - HF_HOME=./models
+      - PYTHONUNBUFFERED=1
     ports:
       - "8000:8000"
     deploy:

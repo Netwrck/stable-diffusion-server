@@ -60,7 +60,7 @@ class HEDdetector:
         if not os.path.exists(modelpath):
             modelpath = hf_hub_download("lllyasviel/Annotators", "ControlNetHED.pth")
         self.netNetwork = ControlNetHED_Apache2().float().cuda().eval()
-        self.netNetwork.load_state_dict(torch.load(modelpath))
+        self.netNetwork.load_state_dict(torch.load(modelpath, weights_only=False))
 
     def __call__(self, input_image):
         assert input_image.ndim == 3

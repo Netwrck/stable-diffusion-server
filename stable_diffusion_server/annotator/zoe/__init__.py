@@ -20,7 +20,7 @@ class ZoeDetector:
             model_path = hf_hub_download("lllyasviel/Annotators", "ZoeD_M12_N.pt")
         conf = get_config("zoedepth", "infer")
         model = ZoeDepth.build_from_config(conf)
-        model.load_state_dict(torch.load(model_path)['model'], strict=False)
+        model.load_state_dict(torch.load(model_path, weights_only=False)['model'], strict=False)
         model = model.cuda()
         model.device = 'cuda'
         model.eval()

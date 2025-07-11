@@ -22,6 +22,8 @@ from diffusers import (
     AutoPipelineForImage2Image,
     FluxPipeline,
     FluxControlNetPipeline,
+    FluxImg2ImgPipeline,
+    FluxInpaintPipeline,
 )
 from diffusers.utils import load_image
 from fastapi import FastAPI, File, UploadFile
@@ -33,7 +35,7 @@ from transformers import set_seed
 
 from env import BUCKET_PATH, BUCKET_NAME
 from stable_diffusion_server.bucket_api import check_if_blob_exists, upload_to_bucket
-from stable_diffusion_server.bumpy_detection import detect_too_bumpy
+# from stable_diffusion_server.bumpy_detection import detect_too_bumpy
 from stable_diffusion_server.image_processing import (
     process_image_for_stable_diffusion,
 )
@@ -42,10 +44,6 @@ from stable_diffusion_server.prompt_utils import (
     shorten_too_long_text,
     shorten_prompt_for_retry,
     remove_stopwords,
-)
-from stable_diffusion_server.prompt_utils import (
-    remove_stopwords,
-    shorten_prompt_for_retry,
 )
 
 from stable_diffusion_server.custom_pipeline import CustomPipeline
@@ -71,20 +69,40 @@ app.add_middleware(
 os.environ["TRANSFORMERS_CACHE"] = os.getenv("TRANSFORMERS_CACHE", "./models")
 os.environ["HF_HOME"] = os.getenv("HF_HOME", "./models")
 
-# Load Flux Schnell pipeline - prefer local, fallback to download
-try:
-    flux_pipe = FluxPipeline.from_pretrained(
-        "models/FLUX.1-schnell", 
-        torch_dtype=torch.bfloat16
-    )
-except OSError:
-    # Fallback to downloading from hub (uses TRANSFORMERS_CACHE env var)
-    flux_pipe = FluxPipeline.from_pretrained(
-        "black-forest-labs/FLUX.1-schnell", 
-        torch_dtype=torch.bfloat16
-    )
-flux_pipe.enable_model_cpu_offload()
-flux_pipe.enable_sequential_cpu_offload()
+# Global variables for lazy loading
+flux_pipe = None
+img2img = None
+inpaintpipe = None
+pipe = None
+
+def get_flux_pipe():
+    """Lazy load Flux pipeline to reduce memory usage"""
+    global flux_pipe
+    if flux_pipe is None:
+        logger.info("Loading Flux Schnell pipeline...")
+        try:
+            flux_pipe = FluxPipeline.from_pretrained(
+                "models/FLUX.1-schnell", 
+                torch_dtype=torch.bfloat16,
+                cache_dir="./models"
+            )
+        except OSError:
+            logger.info("Local model not found, downloading from hub...")
+            flux_pipe = FluxPipeline.from_pretrained(
+                "black-forest-labs/FLUX.1-schnell", 
+                torch_dtype=torch.bfloat16,
+                cache_dir="./models"
+            )
+        
+        # Enable aggressive memory optimizations
+        flux_pipe.enable_model_cpu_offload()
+        flux_pipe.enable_sequential_cpu_offload()
+        flux_pipe.enable_attention_slicing()
+        if hasattr(flux_pipe, 'enable_vae_slicing'):
+            flux_pipe.enable_vae_slicing()
+        
+        logger.info("Flux pipeline loaded successfully")
+    return flux_pipe
 # Disable DFloat11 for now - causing CUDA memory issues
 # try:
 #     from dfloat11 import DFloat11Model
@@ -94,29 +112,17 @@ flux_pipe.enable_sequential_cpu_offload()
 #     logger.error(f"Failed to load DFloat11 weights: {e}")
 
 try:
-    # Load ControlNet using x-flux implementation
-    from stable_diffusion_server.controlnet import ControlNetFlux
-    from stable_diffusion_server.flux_util import load_safetensors
-    from stable_diffusion_server.diffusion_util import configs
-    
+    # Simplified ControlNet loading - just check if file exists for now
     if os.path.exists("models/controlnet.safetensors"):
-        # Create ControlNet model instance
-        flux_controlnet = ControlNetFlux(configs["flux-schnell"].params)
-        
-        # Load weights from safetensors file
-        checkpoint = load_safetensors("models/controlnet.safetensors")
-        flux_controlnet.load_state_dict(checkpoint, strict=False)
-        flux_controlnet = flux_controlnet.to(torch.bfloat16)
-        
-        # Create pipeline (this will need to be adapted)
-        flux_controlnetpipe = flux_controlnet  # Store the model for now
-        logger.info("Successfully loaded ControlNet from models/controlnet.safetensors")
+        # We'll implement the actual loading later
+        flux_controlnetpipe = "models/controlnet.safetensors"  # Store path for now
+        logger.info("Found ControlNet at models/controlnet.safetensors (not loaded yet)")
     else:
         flux_controlnetpipe = None
         logger.warning("No ControlNet model found at models/controlnet.safetensors")
         
 except Exception as e:
-    logger.error(f"Failed to load Flux ControlNet: {e}")
+    logger.error(f"Failed to check for Flux ControlNet: {e}")
     flux_controlnetpipe = None
 
 
@@ -516,20 +522,20 @@ def style_transfer_image_from_prompt(
         ).images[0]
         # revert scheduler
         img2img.scheduler = lcm_scheduler
-    if detect_too_bumpy(image):
-        if retries <= 0:
-            raise Exception(
-                "image too bumpy, retrying failed"
-            )  # todo fix and just accept it?
-        logger.info("image too bumpy, retrying once w different prompt detailed")
-        return style_transfer_image_from_prompt(
-            prompt + " detail",
-            image_url,
-            strength - 0.01,
-            canny,
-            input_pil,
-            retries - 1,
-        )
+    # if detect_too_bumpy(image):
+    #     if retries <= 0:
+    #         raise Exception(
+    #             "image too bumpy, retrying failed"
+    #         )  # todo fix and just accept it?
+    #     logger.info("image too bumpy, retrying once w different prompt detailed")
+    #     return style_transfer_image_from_prompt(
+    #         prompt + " detail",
+    #         image_url,
+    #         strength - 0.01,
+    #         canny,
+    #         input_pil,
+    #         retries - 1,
+    #     )
 
     return image_to_bytes(image)
 
@@ -581,13 +587,15 @@ def create_image_from_prompt(
         )
         image = image.crop((0, 0, width, height))
 
-    if detect_too_bumpy(image):
-        if retries <= 0:
-            raise Exception("image too bumpy, retrying failed")
-        logger.info("image too bumpy, retrying once w different prompt detailed")
-        return create_image_from_prompt(
-            prompt + " detail", width, height, n_steps + 1, extra_args, retries - 1
-        )
+    # if detect_too_bumpy(image):
+    #     if retries <= 2:
+    #         logger.info("image too bumpy, retrying once w different prompt detailed")
+    #         return create_image_from_prompt(
+    #             prompt + " detail", width, height, n_steps + 1, extra_args, retries - 1
+    #         )
+    #     else:
+    #         logger.warning("image too bumpy after 2 retries, returning anyway")
+    #         # Return the image anyway after 2 retries to prevent infinite recursion
 
     return image_to_bytes(image)
 

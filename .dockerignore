@@ -1,6 +1,60 @@
-.git
-.github
-__pycache__
+# Exclude models directory to keep image size small
+models/
+*.safetensors
+*.bin
+*.ckpt
+*.pth
+*.pt
+
+# Exclude other large files and directories
+__pycache__/
 *.pyc
-.venv
-tests
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+.git/
+.github/
+.gitignore
+README.md
+*.md
+docs/
+.pytest_cache/
+.coverage
+.nyc_output
+.cache
+.DS_Store
+.vscode/
+.idea/
+
+# Exclude temporary and log files
+*.log
+*.tmp
+*.temp
+.logs/
+logs/
+
+# Exclude secrets and credentials
+secrets/
+*.json
+*.key
+*.pem
+*.env
+.env*
+
+# Exclude test and development files
+tests/
+test_*
+*_test.py
+gradio_*.py
+flux_schnell.py
+
+# Exclude backdrops (large image files)
+backdrops/
+
+# Exclude x-flux directory
+x-flux/

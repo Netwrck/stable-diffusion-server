@@ -22,7 +22,7 @@ class CustomPipeline:
 
     def load_controlnet(self, controlnet_path: str):
         self.controlnet = load_controlnet(self.name, device="cpu" if self.offload else self.device)
-        self.controlnet.load_state_dict(torch.load(controlnet_path, map_location="cpu"))
+        self.controlnet.load_state_dict(torch.load(controlnet_path, map_location="cpu", weights_only=False))
 
     def __call__(self, prompt: str, control_image: Image.Image | None = None,
                  width: int = 1024, height: int = 1024, num_steps: int = 50, guidance: float = 3.5, seed: int | None = None):
