@@ -4,7 +4,8 @@
       "Bash(uv pip:*)",
       "Bash(source:*)",
       "Bash(find:*)",
-      "Bash(timeout:*)"
+      "Bash(timeout:*)",
+      "Bash(cp:*)"
     ],
     "deny": []
   }

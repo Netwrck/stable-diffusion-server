@@ -1,16 +1,28 @@
 from dataclasses import dataclass
-from typing import Any, Dict
 
 import torch
 from torch import Tensor, nn
 from einops import rearrange
-from diffusers.utils import is_torch_version
 
-from .modules.layers import (DoubleStreamBlock, EmbedND,
-                                 MLPEmbedder,
+from .modules.layers import (DoubleStreamBlock, EmbedND, LastLayer,
+                                 MLPEmbedder, SingleStreamBlock,
                                  timestep_embedding)
-from .model import FluxParams
 
+
+@dataclass
+class FluxParams:
+    in_channels: int
+    vec_in_dim: int
+    context_in_dim: int
+    hidden_size: int
+    mlp_ratio: float
+    num_heads: int
+    depth: int
+    depth_single_blocks: int
+    axes_dim: list[int]
+    theta: int
+    qkv_bias: bool
+    guidance_embed: bool
 
 def zero_module(module):
     for p in module.parameters():

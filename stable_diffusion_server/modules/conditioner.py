@@ -1,42 +1,38 @@
-import torch
-from torch import nn
-from transformers import CLIPTextModel, CLIPTokenizer, T5EncoderModel, T5Tokenizer
+from torch import Tensor, nn
+from transformers import (CLIPTextModel, CLIPTokenizer, T5EncoderModel,
+                          T5Tokenizer)
 
 
 class HFEmbedder(nn.Module):
-    def __init__(
-        self,
-        hf_name: str,
-        hf_path: str | None = None,
-        max_length: int = 77,
-        torch_dtype=torch.float16,
-    ):
+    def __init__(self, version: str, max_length: int, **hf_kwargs):
         super().__init__()
-        self.is_t5 = "t5" in hf_name.lower()
-        if self.is_t5:
-            self.tokenizer = T5Tokenizer.from_pretrained(hf_name if hf_path is None else hf_path)
-            self.model = T5EncoderModel.from_pretrained(
-                hf_name if hf_path is None else hf_path, torch_dtype=torch_dtype
-            )
-        else:
-            self.tokenizer = CLIPTokenizer.from_pretrained(hf_name if hf_path is None else hf_path)
-            self.model = CLIPTextModel.from_pretrained(
-                hf_name if hf_path is None else hf_path, torch_dtype=torch_dtype
-            )
+        self.is_clip = version.startswith("openai")
         self.max_length = max_length
+        self.output_key = "pooler_output" if self.is_clip else "last_hidden_state"
 
-    @torch.no_grad()
-    def forward(self, text: list[str]):
-        text_inputs = self.tokenizer(
+        if self.is_clip:
+            self.tokenizer: CLIPTokenizer = CLIPTokenizer.from_pretrained(version, max_length=max_length)
+            self.hf_module: CLIPTextModel = CLIPTextModel.from_pretrained(version, **hf_kwargs)
+        else:
+            self.tokenizer: T5Tokenizer = T5Tokenizer.from_pretrained(version, max_length=max_length)
+            self.hf_module: T5EncoderModel = T5EncoderModel.from_pretrained(version, **hf_kwargs)
+
+        self.hf_module = self.hf_module.eval().requires_grad_(False)
+
+    def forward(self, text: list[str]) -> Tensor:
+        batch_encoding = self.tokenizer(
             text,
-            padding="max_length",
-            max_length=self.max_length,
             truncation=True,
+            max_length=self.max_length,
+            return_length=False,
+            return_overflowing_tokens=False,
+            padding="max_length",
             return_tensors="pt",
         )
-        text_input_ids = text_inputs.input_ids
-        if self.is_t5:
-            prompt_embeds = self.model(text_input_ids.to(self.model.device))[0]
-        else:
-            prompt_embeds = self.model(text_input_ids.to(self.model.device), output_hidden_states=True).hidden_states[-2]
-        return prompt_embeds
+
+        outputs = self.hf_module(
+            input_ids=batch_encoding["input_ids"].to(self.hf_module.device),
+            attention_mask=None,
+            output_hidden_states=False,
+        )
+        return outputs[self.output_key]

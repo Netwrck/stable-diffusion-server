@@ -94,31 +94,27 @@ flux_pipe.enable_sequential_cpu_offload()
 #     logger.error(f"Failed to load DFloat11 weights: {e}")
 
 try:
-    # Try to load ControlNet from models/ directory first (custom model)
-    if os.path.exists("models/controlnet-line.safetensors"):
-        flux_controlnet = ControlNetModel.from_single_file(
-            "models/controlnet-line.safetensors", torch_dtype=torch.bfloat16
-        )
-    else:
-        # Fallback to downloading from Hub (uses TRANSFORMERS_CACHE env var)
-        flux_controlnet = ControlNetModel.from_pretrained(
-            "XLabs-AI/flux-controlnet-canny-v3",
-            torch_dtype=torch.bfloat16
-        )
+    # Load ControlNet using x-flux implementation
+    from stable_diffusion_server.controlnet import ControlNetFlux
+    from stable_diffusion_server.flux_util import load_safetensors
+    from stable_diffusion_server.diffusion_util import configs
     
-    flux_controlnetpipe = FluxControlNetPipeline(
-        controlnet=flux_controlnet, **flux_pipe.components
-    )
-    flux_controlnetpipe.enable_model_cpu_offload()
-    flux_controlnetpipe.enable_sequential_cpu_offload()
-    try:
-        lora_path = os.getenv(
-            "CONTROLNET_LORA", "black-forest-labs/flux-controlnet-line-lora"
-        )
-        flux_controlnetpipe.load_lora_weights(lora_path, adapter_name="line")
-        flux_controlnetpipe.set_adapters(["line"], adapter_weights=[1.0])
-    except Exception as e:
-        logger.error(f"Failed to load ControlNet LoRA: {e}")
+    if os.path.exists("models/controlnet.safetensors"):
+        # Create ControlNet model instance
+        flux_controlnet = ControlNetFlux(configs["flux-schnell"].params)
+        
+        # Load weights from safetensors file
+        checkpoint = load_safetensors("models/controlnet.safetensors")
+        flux_controlnet.load_state_dict(checkpoint, strict=False)
+        flux_controlnet = flux_controlnet.to(torch.bfloat16)
+        
+        # Create pipeline (this will need to be adapted)
+        flux_controlnetpipe = flux_controlnet  # Store the model for now
+        logger.info("Successfully loaded ControlNet from models/controlnet.safetensors")
+    else:
+        flux_controlnetpipe = None
+        logger.warning("No ControlNet model found at models/controlnet.safetensors")
+        
 except Exception as e:
     logger.error(f"Failed to load Flux ControlNet: {e}")
     flux_controlnetpipe = None
