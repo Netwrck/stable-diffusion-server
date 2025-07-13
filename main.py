@@ -522,7 +522,7 @@ def style_transfer_image_from_prompt(
                 image = flux_controlnetpipe(
                     prompt=prompt,
                     image=canny_image,
-                    num_inference_steps=8,
+                    num_inference_steps=4,
                     guidance_scale=0.0,
                     generator=generator,
                     max_sequence_length=256,
@@ -533,7 +533,7 @@ def style_transfer_image_from_prompt(
                     width=input_pil.width,
                     height=input_pil.height,
                     guidance_scale=0.0,
-                    num_inference_steps=8,
+                    num_inference_steps=4,
                     generator=generator,
                     max_sequence_length=256,
                 ).images[0]
@@ -720,7 +720,7 @@ def inpaint_image_from_prompt(prompt, image_url: str, mask_url: str, retries=3):
     init_image = load_image(image_url).convert("RGB")
     mask_image = load_image(mask_url).convert("RGB")  # why rgb for a 1 channel mask?
     # num_inference_steps = 75 # causes weird error ValueError: The combination of `original_steps x strength`: 50 x 1.0 is smaller than `num_inference_steps`: 75. Make sure to either reduce `num_inference_steps` to a value smaller than 50 or increase `strength` to a value higher than 1.5.
-    num_inference_steps = 40
+    num_inference_steps = 4
     high_noise_frac = 0.7
 
     for attempt in range(retries + 1):
