@@ -6,6 +6,16 @@ models/
 *.pth
 *.pt
 
+# Exclude image output directories
+images/
+imgs-sd/
+sd-images1/
+results/
+outputs/
+
+# Exclude stable_diffusion_server models if any
+stable_diffusion_server/models/
+
 # Exclude other large files and directories
 __pycache__/
 *.pyc
@@ -58,3 +68,41 @@ backdrops/
 
 # Exclude x-flux directory
 x-flux/
+
+# Exclude any cached or temporary model files
+.cache/
+cache/
+huggingface/
+transformers_cache/
+
+# Exclude local development scripts
+gradio_*.py
+flux_schnell.py
+demo_*.py
+*_test.py
+test_*
+
+# Results and logs
+results_*
+progress.txt
+
+# Local development files that shouldn't go in container
+models_backup/
+*.bak
+*.swp
+*.swo
+*~
+
+# IDE and editor files
+.vscode/
+.idea/
+*.sublime-*
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+dist/
+build/
+*.egg-info/

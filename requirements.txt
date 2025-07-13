@@ -356,7 +356,7 @@ intervaltree==3.1.0
     # via lhotse
 invisible-watermark==0.2.0
     # via -r requirements.in
-ipython==9.4.0
+ipython==8.18.1
     # via mediapy
 ipython-pygments-lexers==1.1.1
     # via ipython

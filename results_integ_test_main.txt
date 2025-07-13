@@ -1,7 +1,0 @@
-============================= test session starts ==============================
-platform linux -- Python 3.8.3, pytest-8.3.5, pluggy-1.5.0 -- /home/lee/.pyenv/versions/3.8.3/bin/python3.8
-cachedir: .pytest_cache
-rootdir: /home/lee/code/sdif
-configfile: pytest.ini
-plugins: typeguard-2.12.1, anyio-4.5.2, env-0.8.1, asyncio-0.15.1, hydra-core-1.0.6
-collecting ... 

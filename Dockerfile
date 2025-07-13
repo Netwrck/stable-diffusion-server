@@ -1,18 +1,29 @@
 # syntax=docker/dockerfile:1.6
-ARG CUDA_VER=12.9.1
-FROM --platform=linux/amd64 nvidia/cuda:${CUDA_VER}-cudnn-runtime-ubuntu22.04
+ARG CUDA_VER=12.0.1
+FROM --platform=linux/amd64 nvidia/cuda:${CUDA_VER}-devel-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     MODE_TO_RUN=api \
-    MODEL_NAME=stabilityai/stable-diffusion-xl-base-1.0
+    MODEL_NAME=stabilityai/stable-diffusion-xl-base-1.0 \
+    HF_HOME=/tmp/huggingface \
+    TRANSFORMERS_CACHE=/tmp/transformers_cache \
+    TORCH_HOME=/tmp/torch
 
 WORKDIR /app
 
 # Install Python and dependencies
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends python3 python3-pip git && \
+    apt-get install -y --no-install-recommends \
+        python3 \
+        python3-pip \
+        git \
+        curl \
+        wget && \
     rm -rf /var/lib/apt/lists/*
+
+# Create necessary directories
+RUN mkdir -p /tmp/huggingface /tmp/transformers_cache /tmp/torch /app/models
 
 # Copy requirements first for better caching
 COPY requirements.txt .
