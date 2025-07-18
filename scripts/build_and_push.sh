@@ -1,7 +1,8 @@
 #!/bin/bash
-set -euo pipefail
+set -euo# Ensure we're in the project root
+cd "$(dirname "$0")/.."
 
-# Configuration
+# Enable BuildKit for better cachingiguration
 GITHUB_USERNAME="${GITHUB_USERNAME:-$(git remote get-url origin | sed 's/.*github\.com[:/]\([^/]*\)\/.*/\1/' | tr '[:upper:]' '[:lower:]')}"  # Auto-detect from git remote
 IMAGE_NAME="stable-diffusion-server"
 TAG="${1:-latest}"

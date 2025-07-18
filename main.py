@@ -22,6 +22,9 @@ from diffusers import (
     AutoPipelineForImage2Image,
     FluxPipeline,
     FluxControlNetPipeline,
+    FluxControlNetModel,
+    FluxImageToImagePipeline,
+    FluxControlInpaintPipeline,
     FluxImg2ImgPipeline,
     FluxInpaintPipeline,
 )
@@ -69,11 +72,133 @@ app.add_middleware(
 os.environ["TRANSFORMERS_CACHE"] = os.getenv("TRANSFORMERS_CACHE", "./models")
 os.environ["HF_HOME"] = os.getenv("HF_HOME", "./models")
 
-# Global variables for lazy loading
+# Global variables for unified pipeline system
+BASE_PIPE = None
+IMG2IMG_PIPE = None  
+INPAINT_PIPE = None
+CANNY_PIPE = None
+
+# Legacy compatibility variables
 flux_pipe = None
 img2img = None
 inpaintpipe = None
 pipe = None
+
+def build_flux_pipes(model_repo: str = "black-forest-labs/FLUX.1-schnell"):
+    """Unified Flux component factory with shared components for memory efficiency"""
+    try:
+        # Try local model first
+        local_model_path = "models/FLUX.1-schnell"
+        if os.path.exists(local_model_path):
+            model_repo = local_model_path
+            logger.info(f"Using local model: {model_repo}")
+        else:
+            logger.info(f"Using hub model: {model_repo}")
+    except Exception as e:
+        logger.warning(f"Error checking local model: {e}, using hub model")
+    
+    # 1️⃣ Base text‑to‑image
+    base = FluxPipeline.from_pretrained(
+        model_repo, 
+        torch_dtype=torch.bfloat16,
+        cache_dir="./models"
+    )
+    base.enable_model_cpu_offload()
+    base.enable_attention_slicing()
+    if hasattr(base, 'enable_vae_slicing'):
+        base.enable_vae_slicing()
+    
+    # 2️⃣ Lightweight img2img & style‑transfer
+    img2img = FluxImageToImagePipeline.from_pipe(base)
+    img2img.enable_model_cpu_offload()
+    
+    # 3️⃣ Flux‑native in‑painting
+    inpaint = FluxControlInpaintPipeline.from_pipe(base)
+    inpaint.enable_model_cpu_offload()
+    
+    # 4️⃣ Flux-native Canny ControlNet (compatible with Flux, not SDXL)
+    try:
+        from diffusers import FluxControlNetModel
+        
+        canny_cn = FluxControlNetModel.from_pretrained(
+            "XLabs-AI/flux-controlnet-canny-diffusers",  # Flux-native ControlNet
+            torch_dtype=torch.bfloat16,
+            cache_dir="./models",
+            use_safetensors=True,
+        )
+        canny = FluxControlNetPipeline.from_pretrained(
+            model_repo,
+            controlnet=canny_cn,
+            torch_dtype=torch.bfloat16,
+            cache_dir="./models"
+        )
+        canny.enable_model_cpu_offload()
+        logger.info("Loaded Flux-native ControlNet successfully")
+    except Exception as e:
+        logger.warning(f"Failed to load Flux ControlNet: {e}")
+        canny = None
+    
+    return base, img2img, inpaint, canny
+
+def initialize_unified_pipelines():
+    """Initialize all pipelines using the unified factory"""
+    global BASE_PIPE, IMG2IMG_PIPE, INPAINT_PIPE, CANNY_PIPE
+    global flux_pipe, img2img, inpaintpipe, pipe
+    
+    if BASE_PIPE is None:
+        logger.info("Initializing unified Flux pipeline system...")
+        clear_gpu_memory()
+        
+        BASE_PIPE, IMG2IMG_PIPE, INPAINT_PIPE, CANNY_PIPE = build_flux_pipes()
+        
+        # Apply memory-saving optimizations to all pipelines
+        for p in [BASE_PIPE, IMG2IMG_PIPE, INPAINT_PIPE]:
+            if p is not None:
+                p.set_progress_bar_config(disable=True)  # minor optimization
+                
+                # Enable flash attention if available (PyTorch 2.2+, saves 10-15% memory)
+                try:
+                    if hasattr(p, 'enable_flash_attention_2'):
+                        p.enable_flash_attention_2()
+                        logger.info("Enabled flash attention 2 for memory savings")
+                except Exception as e:
+                    logger.warning(f"Could not enable flash attention: {e}")
+                
+                # NHWC memory format for optimized convolutions
+                try:
+                    if hasattr(p, 'transformer') and p.transformer is not None:
+                        p.transformer.to(memory_format=torch.channels_last)
+                    if hasattr(p, 'unet') and p.unet is not None:
+                        p.unet.to(memory_format=torch.channels_last)
+                except Exception as e:
+                    logger.warning(f"Could not set memory format: {e}")
+                
+                # Enable VAE tiling for better memory usage
+                try:
+                    if hasattr(p, 'vae') and hasattr(p.vae, 'enable_tiling'):
+                        p.vae.enable_tiling()
+                        logger.info("Enabled VAE tiling for memory efficiency")
+                except Exception as e:
+                    logger.warning(f"Could not enable VAE tiling: {e}")
+        
+        # Apply optimizations to ControlNet pipeline if available
+        if CANNY_PIPE is not None:
+            try:
+                CANNY_PIPE.set_progress_bar_config(disable=True)
+                if hasattr(CANNY_PIPE, 'enable_flash_attention_2'):
+                    CANNY_PIPE.enable_flash_attention_2()
+                if hasattr(CANNY_PIPE, 'vae') and hasattr(CANNY_PIPE.vae, 'enable_tiling'):
+                    CANNY_PIPE.vae.enable_tiling()
+            except Exception as e:
+                logger.warning(f"Could not optimize ControlNet pipeline: {e}")
+        
+        # Set legacy compatibility variables
+        flux_pipe = BASE_PIPE
+        img2img = IMG2IMG_PIPE
+        inpaintpipe = INPAINT_PIPE
+        pipe = BASE_PIPE
+        
+        logger.info("Unified Flux pipeline system initialized successfully with memory optimizations")
 
 def clear_gpu_memory():
     """Clear GPU memory to prevent OOM errors"""
@@ -82,41 +207,9 @@ def clear_gpu_memory():
         torch.cuda.ipc_collect()
 
 def get_flux_pipe():
-    """Lazy load Flux pipeline to reduce memory usage"""
-    global flux_pipe
-    if flux_pipe is None:
-        logger.info("Loading Flux Schnell pipeline...")
-        clear_gpu_memory()
-        
-        try:
-            flux_pipe = FluxPipeline.from_pretrained(
-                "models/FLUX.1-schnell", 
-                torch_dtype=torch.bfloat16,
-                cache_dir="./models"
-            )
-            logger.info("Loaded Flux pipeline from local cache")
-        except OSError:
-            logger.info("Local model not found, downloading from hub...")
-            flux_pipe = FluxPipeline.from_pretrained(
-                "black-forest-labs/FLUX.1-schnell", 
-                torch_dtype=torch.bfloat16,
-                cache_dir="./models"
-            )
-            logger.info("Downloaded Flux pipeline from hub")
-        
-        # Enable aggressive memory optimizations
-        flux_pipe.enable_model_cpu_offload()
-        flux_pipe.enable_sequential_cpu_offload()
-        flux_pipe.enable_attention_slicing()
-        if hasattr(flux_pipe, 'enable_vae_slicing'):
-            flux_pipe.enable_vae_slicing()
-        
-        # Set device map for better memory management
-        if hasattr(flux_pipe, 'device_map'):
-            flux_pipe.device_map = 'auto'
-            
-        logger.info("Flux pipeline loaded successfully with memory optimizations")
-    return flux_pipe
+    """Get Flux pipeline using unified system"""
+    initialize_unified_pipelines()
+    return BASE_PIPE
 # Disable DFloat11 for now - causing CUDA memory issues
 # try:
 #     from dfloat11 import DFloat11Model
@@ -184,74 +277,14 @@ except Exception as e:
 # Replace old SDXL pipelines with Flux equivalents
 
 def get_img2img_pipe():
-    """Lazy load Flux img2img pipeline to reduce memory usage"""
-    global img2img
-    if img2img is None:
-        logger.info("Loading Flux img2img pipeline...")
-        try:
-            img2img = FluxImg2ImgPipeline.from_pretrained(
-                "models/FLUX.1-schnell", 
-                torch_dtype=torch.bfloat16,
-                cache_dir="./models"
-            )
-        except OSError:
-            logger.info("Local model not found, downloading img2img from hub...")
-            img2img = FluxImg2ImgPipeline.from_pretrained(
-                "black-forest-labs/FLUX.1-schnell", 
-                torch_dtype=torch.bfloat16,
-                cache_dir="./models"
-            )
-        
-        # Share components from main pipeline if available
-        flux_pipeline = get_flux_pipe()
-        if flux_pipeline is not None:
-            img2img.text_encoder = flux_pipeline.text_encoder
-            img2img.text_encoder_2 = flux_pipeline.text_encoder_2
-            img2img.transformer = flux_pipeline.transformer
-        
-        img2img.enable_model_cpu_offload()
-        img2img.enable_sequential_cpu_offload()
-        img2img.enable_attention_slicing()
-        if hasattr(img2img, 'enable_vae_slicing'):
-            img2img.enable_vae_slicing()
-            
-        logger.info("Flux img2img pipeline loaded successfully")
-    return img2img
+    """Get img2img pipeline using unified system"""
+    initialize_unified_pipelines()
+    return IMG2IMG_PIPE
 
 def get_inpaint_pipe():
-    """Lazy load Flux inpaint pipeline to reduce memory usage"""
-    global inpaintpipe
-    if inpaintpipe is None:
-        logger.info("Loading Flux inpaint pipeline...")
-        try:
-            inpaintpipe = FluxInpaintPipeline.from_pretrained(
-                "models/FLUX.1-schnell", 
-                torch_dtype=torch.bfloat16,
-                cache_dir="./models"
-            )
-        except OSError:
-            logger.info("Local model not found, downloading inpaint from hub...")
-            inpaintpipe = FluxInpaintPipeline.from_pretrained(
-                "black-forest-labs/FLUX.1-schnell", 
-                torch_dtype=torch.bfloat16,
-                cache_dir="./models"
-            )
-        
-        # Share components from main pipeline if available
-        flux_pipeline = get_flux_pipe()
-        if flux_pipeline is not None:
-            inpaintpipe.text_encoder = flux_pipeline.text_encoder
-            inpaintpipe.text_encoder_2 = flux_pipeline.text_encoder_2
-            inpaintpipe.transformer = flux_pipeline.transformer
-        
-        inpaintpipe.enable_model_cpu_offload()
-        inpaintpipe.enable_sequential_cpu_offload()
-        inpaintpipe.enable_attention_slicing()
-        if hasattr(inpaintpipe, 'enable_vae_slicing'):
-            inpaintpipe.enable_vae_slicing()
-            
-        logger.info("Flux inpaint pipeline loaded successfully")
-    return inpaintpipe
+    """Get inpaint pipeline using unified system"""
+    initialize_unified_pipelines()
+    return INPAINT_PIPE
 
 # Use the same pipeline for refiner
 def get_inpaint_refiner():
@@ -262,6 +295,11 @@ def get_inpaint_refiner():
 def get_pipe():
     """Get main pipeline for backwards compatibility"""
     return get_flux_pipe()
+
+def get_canny_pipe():
+    """Get ControlNet Canny pipeline using unified system"""
+    initialize_unified_pipelines()
+    return CANNY_PIPE
 
 
 def generate_controlnet_image_bytes(prompt: str, image: Image.Image, retries=3):
@@ -518,22 +556,41 @@ def style_transfer_image_from_prompt(
     generator = torch.Generator("cpu").manual_seed(0)
     for attempt in range(retries + 1):
         try:
-            if canny and flux_controlnetpipe:
-                image = flux_controlnetpipe(
-                    prompt=prompt,
-                    image=canny_image,
-                    num_inference_steps=4,
-                    guidance_scale=0.0,
-                    generator=generator,
-                    max_sequence_length=256,
-                ).images[0]
+            if canny:
+                # Use Flux ControlNet for Canny edge guidance
+                canny_pipeline = get_canny_pipe()
+                if canny_pipeline:
+                    image = canny_pipeline(
+                        prompt=prompt,
+                        control_image=canny_image,  # Use control_image for Flux ControlNet
+                        controlnet_conditioning_scale=0.7,  # Recommended for XLabs ControlNet
+                        num_inference_steps=5,  # Optimal for Flux
+                        guidance_scale=1.0,  # Better than 0.0 for Flux
+                        generator=generator,
+                        max_sequence_length=256,
+                        height=1024, width=1024,  # Native resolution for XLabs model
+                    ).images[0]
+                else:
+                    # Fallback to regular image generation
+                    flux_pipeline = get_flux_pipe()
+                    image = flux_pipeline(
+                        prompt=prompt,
+                        width=input_pil.width,
+                        height=input_pil.height,
+                        guidance_scale=1.0,  # Updated for optimal Flux performance
+                        num_inference_steps=5,  # Optimal for Flux Schnell
+                        generator=generator,
+                        max_sequence_length=256,
+                    ).images[0]
             else:
-                image = flux_pipe(
+                # Use Flux img2img for style transfer
+                img2img_pipeline = get_img2img_pipe()
+                image = img2img_pipeline(
                     prompt=prompt,
-                    width=input_pil.width,
-                    height=input_pil.height,
-                    guidance_scale=0.0,
-                    num_inference_steps=4,
+                    image=input_pil,
+                    strength=strength,
+                    guidance_scale=0.0,  # CFG disabled for img2img as recommended
+                    num_inference_steps=5,  # Optimal for Flux
                     generator=generator,
                     max_sequence_length=256,
                 ).images[0]
@@ -725,13 +782,15 @@ def inpaint_image_from_prompt(prompt, image_url: str, mask_url: str, retries=3):
 
     for attempt in range(retries + 1):
         try:
-            image = inpaintpipe(
+            inpaint_pipeline = get_inpaint_pipe()
+            image = inpaint_pipeline(
                 prompt=prompt,
                 image=init_image,
                 mask_image=mask_image,
-                num_inference_steps=num_inference_steps,
+                num_inference_steps=5,  # Optimal for Flux
+                guidance_scale=1.0,  # Better than 0.0 for Flux inpainting
                 strength=1.0 - high_noise_frac,  # Convert denoising_start to strength
-                output_type="pil",  # Flux doesn't support latent output
+                max_sequence_length=256,
             ).images[0]
             break
         except Exception as e:
@@ -754,8 +813,10 @@ def inpaint_image_from_prompt(prompt, image_url: str, mask_url: str, retries=3):
             prompt=prompt,
             image=image,
             mask_image=mask_image,
-            num_inference_steps=num_inference_steps,
+            num_inference_steps=5,  # Optimal for Flux
+            guidance_scale=1.0,  # Better than 0.0 for Flux inpainting
             strength=1.0 - high_noise_frac,  # Convert denoising_start to strength
+            max_sequence_length=256,
         ).images[0]
     # try:
     #     # gc.collect()
