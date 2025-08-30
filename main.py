@@ -19,18 +19,16 @@ import torch
 from PIL import Image
 from diffusers import (
     DiffusionPipeline,
-    StableDiffusionXLInpaintPipeline,
+    # StableDiffusionXLInpaintPipeline,  # Commented out - using HDM only
     UNet2DConditionModel,
     LCMScheduler,
-    StableDiffusionInpaintPipeline,
-    StableDiffusionImg2ImgPipeline,
+    # StableDiffusionInpaintPipeline,  # Commented out - using HDM only
+    # StableDiffusionImg2ImgPipeline,  # Commented out - using HDM only
     KDPM2AncestralDiscreteScheduler,
-    StableDiffusionXLImg2ImgPipeline,
-    ControlNetModel,
-    StableDiffusionXLControlNetPipeline,
-    AutoPipelineForImage2Image,
-    FluxPipeline,
-    FluxControlNetPipeline,
+    # StableDiffusionXLImg2ImgPipeline,  # Commented out - using HDM only
+    # ControlNetModel,  # Commented out - style transfer disabled
+    # StableDiffusionXLControlNetPipeline,  # Commented out - style transfer disabled
+    # AutoPipelineForImage2Image,  # Commented out - using HDM only
 )
 from diffusers.utils import load_image
 from fastapi import FastAPI
@@ -59,9 +57,11 @@ try:
 except Exception as e:
     logger.error(f"Error importing pillow_avif: {e}")
 
+# All SDXL models commented out - using HDM only
 # model_name = "models/SSD-1B"
-model_name = "models/ProteusV0.2"
+# model_name = "models/ProteusV0.2"
 # model_name = "dataautogpt3/ProteusV0.2"
+USE_HDM = True  # Flag to use HDM pipeline
 # try:
 #     unet = UNet2DConditionModel.from_pretrained(
 #         "models/lcm-ssd-1b", torch_dtype=torch.float16, variant="fp16"
@@ -71,68 +71,87 @@ model_name = "models/ProteusV0.2"
 #         "latent-consistency/lcm-ssd-1b", torch_dtype=torch.float16, variant="fp16"
 #     )
 
+# Legacy SDXL pipeline - commented out for HDM
+# try:
+#     pipe = DiffusionPipeline.from_pretrained(
+#         model_name, torch_dtype=torch.float16, variant="fp16"
+#     )
+# except OSError as e:
+#     pipe = DiffusionPipeline.from_pretrained(
+#         "dataautogpt3/ProteusV0.2", torch_dtype=torch.float16, variant="fp16"
+#     )
+# 
+# old_scheduler = pipe.scheduler
+# pipe.scheduler = LCMScheduler.from_config(pipe.scheduler.config)
+
+# Create dummy objects for compatibility
+pipe = None
+old_scheduler = None
+
+# LCM LoRA loading commented out - not needed for HDM
+# if os.getenv("LOAD_LCM_LORA", "0") == "1":
+#     if os.path.exists("models/lcm-lora-sdxl"):
+#         pipe.load_lora_weights("models/lcm-lora-sdxl", adapter_name="lcm")
+#     else:
+#         pipe.load_lora_weights(
+#             "latent-consistency/lcm-lora-sdxl", adapter_name="lcm"
+#         )
+#     pipe.set_adapters(["lcm"], adapter_weights=[1.0])
+
+# Load HDM pipeline for efficient text-to-image
 try:
-    # pipe = DiffusionPipeline.from_pretrained(
-    #     "models/SSD-1B", unet=unet, torch_dtype=torch.float16, variant="fp16"
-    # )
-    pipe = DiffusionPipeline.from_pretrained(
-        model_name, torch_dtype=torch.float16, variant="fp16"
-    )
-except OSError as e:
-    # pipe = DiffusionPipeline.from_pretrained(
-    #     "segmind/SSD-1B", unet=unet, torch_dtype=torch.float16, variant="fp16"
-    # )
-    pipe = DiffusionPipeline.from_pretrained(
-        "dataautogpt3/ProteusV0.2", torch_dtype=torch.float16, variant="fp16"
-    )
-
-old_scheduler = pipe.scheduler
-pipe.scheduler = LCMScheduler.from_config(pipe.scheduler.config)
-
-if os.getenv("LOAD_LCM_LORA", "0") == "1":
-    if os.path.exists("models/lcm-lora-sdxl"):
-        pipe.load_lora_weights("models/lcm-lora-sdxl", adapter_name="lcm")
-    else:
-        pipe.load_lora_weights(
-            "latent-consistency/lcm-lora-sdxl", adapter_name="lcm"
+    import sys
+    sys.path.append('../HDM/src')
+    import xut.env
+    
+    # Configure XUT optimizations
+    xut.env.TORCH_COMPILE = True
+    xut.env.USE_LIGER = False
+    xut.env.USE_VANILLA = False
+    xut.env.USE_XFORMERS = True
+    xut.env.USE_XFORMERS_LAYERS = True
+    
+    from hdm.pipeline import HDMXUTPipeline
+    
+    torch.set_float32_matmul_precision("high")
+    hdm_pipe = (
+        HDMXUTPipeline.from_pretrained(
+            "KBlueLeaf/HDM-xut-340M-anime", 
+            trust_remote_code=True
         )
-    pipe.set_adapters(["lcm"], adapter_weights=[1.0])
-
-# Load Flux Schnell pipeline for efficient text-to-image
-flux_pipe = FluxPipeline.from_pretrained(
-    "black-forest-labs/FLUX.1-schnell", torch_dtype=torch.bfloat16
-)
-flux_pipe.enable_model_cpu_offload()
-try:
-    from dfloat11 import DFloat11Model
-    dfloat_path = os.getenv("DF11_MODEL_PATH", "DFloat11/FLUX.1-schnell-DF11")
-    DFloat11Model.from_pretrained(
-        dfloat_path,
-        device="cpu",
-        bfloat16_model=flux_pipe.transformer,
+        .to("cuda:0" if torch.cuda.is_available() else "cpu")
+        .to(torch.float16 if torch.cuda.is_available() else torch.float32)
     )
+    logger.info("HDM pipeline loaded successfully")
 except Exception as e:
-    logger.error(f"Failed to load DFloat11 weights: {e}")
+    logger.error(f"Failed to load HDM pipeline: {e}")
+    # Fallback to original Flux implementation
+    from diffusers import FluxPipeline
+    hdm_pipe = FluxPipeline.from_pretrained(
+        "black-forest-labs/FLUX.1-schnell", torch_dtype=torch.bfloat16
+    )
+    hdm_pipe.enable_model_cpu_offload()
 
-try:
-    flux_controlnet = ControlNetModel.from_pretrained(
-        "black-forest-labs/flux-controlnet-canny", torch_dtype=torch.bfloat16
-    )
-    flux_controlnetpipe = FluxControlNetPipeline(
-        controlnet=flux_controlnet, **flux_pipe.components
-    )
-    flux_controlnetpipe.enable_model_cpu_offload()
-    try:
-        lora_path = os.getenv(
-            "CONTROLNET_LORA", "black-forest-labs/flux-controlnet-line-lora"
-        )
-        flux_controlnetpipe.load_lora_weights(lora_path, adapter_name="line")
-        flux_controlnetpipe.set_adapters(["line"], adapter_weights=[1.0])
-    except Exception as e:
-        logger.error(f"Failed to load ControlNet LoRA: {e}")
-except Exception as e:
-    logger.error(f"Failed to load Flux ControlNet: {e}")
-    flux_controlnetpipe = None
+# Comment out ControlNet for now as requested
+# try:
+#     flux_controlnet = ControlNetModel.from_pretrained(
+#         "black-forest-labs/flux-controlnet-canny", torch_dtype=torch.bfloat16
+#     )
+#     flux_controlnetpipe = FluxControlNetPipeline(
+#         controlnet=flux_controlnet, **flux_pipe.components
+#     )
+#     flux_controlnetpipe.enable_model_cpu_offload()
+#     try:
+#         lora_path = os.getenv(
+#             "CONTROLNET_LORA", "black-forest-labs/flux-controlnet-line-lora"
+#         )
+#         flux_controlnetpipe.load_lora_weights(lora_path, adapter_name="line")
+#         flux_controlnetpipe.set_adapters(["line"], adapter_weights=[1.0])
+#     except Exception as e:
+#         logger.error(f"Failed to load ControlNet LoRA: {e}")
+# except Exception as e:
+#     logger.error(f"Failed to load Flux ControlNet: {e}")
+flux_controlnetpipe = None
 
 
 # quantizing
@@ -166,33 +185,36 @@ from optimum.quanto import freeze, qfloat8, quantize
 # freeze(unet)
 # pipe.unet = unet
 
-pipe.enable_model_cpu_offload()
-pipe.enable_sequential_cpu_offload()
-
-# mem efficient
-pipe.enable_attention_slicing()
-pipe.enable_vae_slicing()
-
-# pipe.to("cuda")
-
-all_components = pipe.components
+# Pipe optimizations commented out - using HDM instead
+# pipe.enable_model_cpu_offload()
+# pipe.enable_sequential_cpu_offload()
+# 
+# # mem efficient
+# pipe.enable_attention_slicing()
+# pipe.enable_vae_slicing()
+# 
+# # pipe.to("cuda")
+# 
+# all_components = pipe.components
+all_components = None
 # all_components.pop("scheduler")
 # all_components.pop("text_encoder")
 # all_components.pop("text_encoder_2")
 # all_components.pop("tokenizer")
 # all_components.pop("tokenizer_2")
 
-img2img = AutoPipelineForImage2Image.from_pipe(pipe)
-img2img.watermark = None
-
-
-# mem efficient
-img2img.enable_attention_slicing()
-img2img.enable_vae_slicing()
-# img2img.to("cuda")
-# img2img.enable_xformers_memory_efficient_attention()
-img2img.enable_model_cpu_offload()
-img2img.enable_sequential_cpu_offload()
+# img2img pipeline commented out - using HDM instead
+# img2img = AutoPipelineForImage2Image.from_pipe(pipe)
+# img2img.watermark = None
+# 
+# # mem efficient
+# img2img.enable_attention_slicing()
+# img2img.enable_vae_slicing()
+# # img2img.to("cuda")
+# # img2img.enable_xformers_memory_efficient_attention()
+# img2img.enable_model_cpu_offload()
+# img2img.enable_sequential_cpu_offload()
+img2img = None
 
 # # Quantize and freeze the text_encoder
 # text_encoder = img2img.text_encoder
@@ -213,7 +235,7 @@ img2img.enable_sequential_cpu_offload()
 #     variant="fp16",
 #     # safety_checker=None,
 # )  # todo try torch_dtype=float16
-pipe.watermark = None
+# pipe.watermark = None  # Commented out since pipe is now None
 
 
 # deepcache
@@ -229,18 +251,17 @@ pipe.watermark = None
 # tomesd.apply_patch(pipe, ratio=0.2)  # light speedup
 
 
-refiner = DiffusionPipeline.from_pretrained(
-    # "stabilityai/stable-diffusion-xl-refiner-1.0",
-    # "dataautogpt3/OpenDalle",
-    model_name,
-    # "models/SSD-1B",
-    unet=pipe.unet,
-    text_encoder_2=pipe.text_encoder_2,
-    vae=pipe.vae,
-    torch_dtype=torch.float16,  # safer to use bfloat?
-    use_safetensors=True,
-    variant="fp16",  # remember not to download the big model
-)
+# Comment out refiner pipeline
+# refiner = DiffusionPipeline.from_pretrained(
+#     model_name,
+#     unet=pipe.unet,
+#     text_encoder_2=pipe.text_encoder_2,
+#     vae=pipe.vae,
+#     torch_dtype=torch.float16,
+#     use_safetensors=True,
+#     variant="fp16",
+# )
+refiner = None
 
 # refiner = pipe  # same model in this case
 # refiner.scheduler = old_scheduler
@@ -248,54 +269,51 @@ refiner = DiffusionPipeline.from_pretrained(
 
 # refiner.schedu
 
-refiner.watermark = None
-# refiner.to("cuda")
-refiner.enable_model_cpu_offload()
-refiner.enable_sequential_cpu_offload()
+# Comment out refiner optimizations
+# refiner.watermark = None
+# refiner.enable_model_cpu_offload()
+# refiner.enable_sequential_cpu_offload()
 
-# {'scheduler', 'text_encoder', 'text_encoder_2', 'tokenizer', 'tokenizer_2', 'unet', 'vae'} can be passed in from existing model
-# inpaintpipe = StableDiffusionInpaintPipeline(**pipe.components)
-inpaintpipe = StableDiffusionXLInpaintPipeline.from_pretrained(
-    # "models/stable-diffusion-xl-base-1.0",
-    model_name,
-    torch_dtype=torch.float16,
-    variant="fp16",
-    use_safetensors=True,
-    scheduler=pipe.scheduler,
-    text_encoder=pipe.text_encoder,
-    text_encoder_2=pipe.text_encoder_2,
-    tokenizer=pipe.tokenizer,
-    tokenizer_2=pipe.tokenizer_2,
-    unet=pipe.unet,
-    vae=pipe.vae,
-    # load_connected_pipeline=
-)
-inpaintpipe.watermark = None
-# inpaintpipe.enable_model_cpu_offload()
+# Comment out inpainting pipeline
+# inpaintpipe = StableDiffusionXLInpaintPipeline.from_pretrained(
+#     model_name,
+#     torch_dtype=torch.float16,
+#     variant="fp16",
+#     use_safetensors=True,
+#     scheduler=pipe.scheduler,
+#     text_encoder=pipe.text_encoder,
+#     text_encoder_2=pipe.text_encoder_2,
+#     tokenizer=pipe.tokenizer,
+#     tokenizer_2=pipe.tokenizer_2,
+#     unet=pipe.unet,
+#     vae=pipe.vae,
+# )
+# # inpaintpipe.watermark = None  # Commented since inpaintpipe is None
+inpaintpipe = None
 
-controlnet_conditioning_scale = 0.5  # recommended for good generalization
-controlnet = ControlNetModel.from_pretrained(
-    "diffusers/controlnet-canny-sdxl-1.0",
-    torch_dtype=torch.float16,
-    variant="fp16",
-)
-# controlnet.to("cuda")
+# Comment out ControlNet pipeline
+# controlnet_conditioning_scale = 0.5
+# controlnet = ControlNetModel.from_pretrained(
+#     "diffusers/controlnet-canny-sdxl-1.0",
+#     torch_dtype=torch.float16,
+#     variant="fp16",
+# )
+# 
+# controlnetpipe = StableDiffusionXLControlNetPipeline.from_pretrained(
+#     model_name,
+#     controlnet=controlnet,
+#     **pipe.components,
+# )
+# controlnetpipe.watermark = None
+controlnet_conditioning_scale = None
+controlnet = None
+controlnetpipe = None
 
-controlnetpipe = StableDiffusionXLControlNetPipeline.from_pretrained(
-    # "stabilityai/stable-diffusion-xl-base-1.0",
-    model_name,
-    controlnet=controlnet,
-    **pipe.components,
-)
-# controlnetpipe.to("cuda")
-controlnetpipe.watermark = None
-
-# efficiency
-controlnetpipe.enable_model_cpu_offload()
-controlnetpipe.enable_sequential_cpu_offload()
-
-controlnetpipe.enable_attention_slicing()
-controlnetpipe.enable_vae_slicing()
+# Comment out ControlNet optimizations
+# controlnetpipe.enable_model_cpu_offload()
+# controlnetpipe.enable_sequential_cpu_offload()
+# controlnetpipe.enable_attention_slicing()
+# controlnetpipe.enable_vae_slicing()
 
 # # Quantize and freeze the text_encoder
 # text_encoderz = controlnetpipe.text_encoder
@@ -342,24 +360,24 @@ controlnetpipe.enable_vae_slicing()
 #     requires_aesthetics_score=False,
 # )
 # inpaintpipe.to("cuda")
-inpaintpipe.watermark = None
+# inpaintpipe.watermark = None  # Commented since inpaintpipe is None
 # inpaintpipe.register_to_config(requires_aesthetics_score=False)
 
-# todo do we need this?
-inpaint_refiner = StableDiffusionXLInpaintPipeline.from_pretrained(
-    # "stabilityai/stable-diffusion-xl-refiner-1.0",
-    model_name,
-    text_encoder_2=inpaintpipe.text_encoder_2,
-    vae=inpaintpipe.vae,
-    torch_dtype=torch.float16,
-    use_safetensors=True,
-    variant="fp16",
-    tokenizer_2=refiner.tokenizer_2,
-    tokenizer=refiner.tokenizer,
-    scheduler=refiner.scheduler,
-    text_encoder=refiner.text_encoder,
-    unet=refiner.unet,
-)
+# Comment out inpaint refiner
+# inpaint_refiner = StableDiffusionXLInpaintPipeline.from_pretrained(
+#     model_name,
+#     text_encoder_2=inpaintpipe.text_encoder_2,
+#     vae=inpaintpipe.vae,
+#     torch_dtype=torch.float16,
+#     use_safetensors=True,
+#     variant="fp16",
+#     tokenizer_2=refiner.tokenizer_2,
+#     tokenizer=refiner.tokenizer,
+#     scheduler=refiner.scheduler,
+#     text_encoder=refiner.text_encoder,
+#     unet=refiner.unet,
+# )
+inpaint_refiner = None
 # del inpaint_refiner.vae
 # del inpaint_refiner.text_encoder_2
 # del inpaint_refiner.text_encoder
@@ -388,7 +406,8 @@ inpaint_refiner = StableDiffusionXLInpaintPipeline.from_pretrained(
 #     requires_aesthetics_score=False,
 # )
 # inpaint_refiner.to("cuda")
-inpaint_refiner.watermark = None
+# Comment out inpaint refiner watermark
+# inpaint_refiner.watermark = None
 # inpaint_refiner.register_to_config(requires_aesthetics_score=False)
 
 n_steps = 5
@@ -397,14 +416,9 @@ high_noise_frac = 0.8
 use_refiner = False
 
 
-# efficiency
-
-# inpaintpipe.enable_model_cpu_offload()
-inpaint_refiner.enable_model_cpu_offload()
-inpaint_refiner.enable_sequential_cpu_offload()
-# pipe.enable_model_cpu_offload()
-# refiner.enable_model_cpu_offload()
-# img2img.enable_model_cpu_offload()
+# Comment out efficiency optimizations since we're using HDM
+# inpaint_refiner.enable_model_cpu_offload()
+# inpaint_refiner.enable_sequential_cpu_offload()
 
 
 # pipe.enable_xformers_memory_efficient_attention()
@@ -439,9 +453,9 @@ inpaint_refiner.enable_sequential_cpu_offload()
 # this can cause errors on some inputs so consider disabling it
 # pipe.unet = torch.compile(pipe.unet)
 # refiner.unet = torch.compile(refiner.unet)#, mode="reduce-overhead", fullgraph=True)
-# compile the inpainters - todo reuse the other unets? swap out the models for others/del them so they share models and can be swapped efficiently
-inpaintpipe.unet = pipe.unet
-inpaint_refiner.unet = refiner.unet
+# Comment out UNet sharing and compilation since we're using HDM
+# inpaintpipe.unet = pipe.unet
+# inpaint_refiner.unet = refiner.unet
 # inpaintpipe.unet = torch.compile(inpaintpipe.unet)
 # inpaint_refiner.unet = torch.compile(inpaint_refiner.unet)
 
@@ -490,9 +504,23 @@ def make_image(prompt: str, save_path: str = ""):
     if Path(save_path).exists():
         return FileResponse(save_path, media_type="image/png")
     with torch.inference_mode():
-        image = pipe(
-            prompt=prompt, num_inference_steps=n_steps, **extra_pipe_args
-        ).images[0]
+        # Use HDM instead of SDXL pipe
+        result = hdm_pipe(
+            prompts=[prompt],
+            negative_prompts="low quality, worst quality, blurry, bad anatomy",
+            width=1024,
+            height=1024,
+            cfg_scale=3.0,
+            num_inference_steps=24,
+            camera_param={
+                "zoom": 1.0,
+                "x_shift": 0.0,
+                "y_shift": 0.0,
+            },
+            tread_gamma1=0.0,
+            tread_gamma2=0.5,
+        )
+        image = result.images[0]
     if not save_path:
         save_path = f"images/{prompt}.png"
     image.save(save_path)
@@ -693,25 +721,25 @@ def style_transfer_image_from_prompt(
     generator = torch.Generator("cpu").manual_seed(0)
     for attempt in range(retries + 1):
         try:
-            if canny and flux_controlnetpipe:
-                image = flux_controlnetpipe(
-                    prompt=prompt,
-                    image=canny_image,
-                    num_inference_steps=n_steps,
-                    guidance_scale=0.0,
-                    generator=generator,
-                    max_sequence_length=256,
-                ).images[0]
-            else:
-                image = flux_pipe(
-                    prompt=prompt,
+            # Use HDM for style transfer instead of Flux
+            # Note: HDM doesn't have direct ControlNet support, so we'll use basic generation
+            with torch.inference_mode():
+                result = hdm_pipe(
+                    prompts=[prompt],
+                    negative_prompts="low quality, worst quality, blurry, bad anatomy",
                     width=input_pil.width,
                     height=input_pil.height,
-                    guidance_scale=0.0,
+                    cfg_scale=3.0,
                     num_inference_steps=n_steps,
-                    generator=generator,
-                    max_sequence_length=256,
-                ).images[0]
+                    camera_param={
+                        "zoom": 1.0,
+                        "x_shift": 0.0,
+                        "y_shift": 0.0,
+                    },
+                    tread_gamma1=0.0,
+                    tread_gamma2=0.5,
+                )
+                image = result.images[0]
             break
         except Exception as err:
             if attempt >= retries:
@@ -743,19 +771,20 @@ def style_transfer_image_from_prompt(
     #     # gc.collect()
 
     # add a refinement pass because the image is not always perfect/depending on the model if its not well tuned for LCM it might need more passes
-    if use_refiner:
-        lcm_scheduler = img2img.scheduler
-        img2img.scheduler = old_scheduler
-
-        image = img2img(
-            prompt=prompt,
-            image=image,
-            num_inference_steps=n_refiner_steps,
-            strength=strength,
-            **extra_refiner_pipe_args,
-        ).images[0]
-        # revert scheduler
-        img2img.scheduler = lcm_scheduler
+    # Comment out refiner since we're using HDM only
+    # if use_refiner:
+    #     lcm_scheduler = img2img.scheduler
+    #     img2img.scheduler = old_scheduler
+    # 
+    #     image = img2img(
+    #         prompt=prompt,
+    #         image=image,
+    #         num_inference_steps=n_refiner_steps,
+    #         strength=strength,
+    #         **extra_refiner_pipe_args,
+    #     ).images[0]
+    #     # revert scheduler
+    #     img2img.scheduler = lcm_scheduler
     if detect_too_bumpy(image):
         if retries <= 0:
             raise Exception(
@@ -775,34 +804,46 @@ def style_transfer_image_from_prompt(
 
 
 def create_image_from_prompt(
-    prompt, width, height, n_steps=5, extra_args=None, retries=3
+    prompt, width, height, n_steps=24, extra_args=None, retries=3
 ):
-    """Generate an image using the Flux Schnell pipeline with retries."""
+    """Generate an image using the HDM pipeline with retries."""
     if extra_args is None:
         extra_args = {}
 
+    # HDM works best with multiples of 64
     block_width = width - (width % 64)
     block_height = height - (height % 64)
     prompt = shorten_too_long_text(prompt)
-    generator = torch.Generator("cpu").manual_seed(extra_args.get("seed", 0))
+    
+    # HDM doesn't use the same generator setup as Flux
+    # seed = extra_args.get("seed", 0)
 
     for attempt in range(retries + 1):
         try:
-            image = flux_pipe(
-                prompt=prompt,
-                width=block_width,
-                height=block_height,
-                guidance_scale=0.0,
-                num_inference_steps=n_steps,
-                generator=generator,
-                max_sequence_length=256,
-            ).images[0]
+            # Use HDM pipeline instead of Flux
+            with torch.inference_mode():
+                result = hdm_pipe(
+                    prompts=[prompt],
+                    negative_prompts="low quality, worst quality, blurry, bad anatomy",
+                    width=block_width,
+                    height=block_height,
+                    cfg_scale=3.0,
+                    num_inference_steps=n_steps,
+                    camera_param={
+                        "zoom": 1.0,
+                        "x_shift": 0.0,
+                        "y_shift": 0.0,
+                    },
+                    tread_gamma1=0.0,
+                    tread_gamma2=0.5,
+                )
+                image = result.images[0]
             break
         except Exception as err:  # pragma: no cover - hardware/oom errors
             if attempt >= retries:
                 raise
             logger.warning(
-                f"Flux generation failed on attempt {attempt + 1}/{retries}: {err}"
+                f"HDM generation failed on attempt {attempt + 1}/{retries}: {err}"
             )
             if attempt == 0:
                 prompt = remove_stopwords(prompt)
@@ -860,45 +901,55 @@ def image_to_bytes(image):
 
 
 def inpaint_image_from_prompt(prompt, image_url: str, mask_url: str, retries=3):
-    prompt = shorten_too_long_text(prompt)
-    # image = pipe(guidance_scale=7,prompt=prompt).images[0]
-
-    init_image = load_image(image_url).convert("RGB")
-    mask_image = load_image(mask_url).convert("RGB")  # why rgb for a 1 channel mask?
-    # num_inference_steps = 75 # causes weird error ValueError: The combination of `original_steps x strength`: 50 x 1.0 is smaller than `num_inference_steps`: 75. Make sure to either reduce `num_inference_steps` to a value smaller than 50 or increase `strength` to a value higher than 1.5.
-    num_inference_steps = 40
-    high_noise_frac = 0.7
-
-    generator = torch.Generator("cpu").manual_seed(0)
-    for attempt in range(retries + 1):
-        try:
-            image = inpaintpipe(
-                prompt=prompt,
-                image=init_image,
-                mask_image=mask_image,
-                num_inference_steps=num_inference_steps,
-                denoising_start=high_noise_frac,
-                output_type="latent",
-            ).images[0]
-            break
-        except Exception as e:
-            if attempt >= retries:
-                traceback.print_exc()
-                raise
-            logger.warning(
-                f"Inpainting failed on attempt {attempt + 1}/{retries}: {e}"
-            )
-            prompt = remove_stopwords(prompt) if attempt == 0 else shorten_prompt_for_retry(prompt)
-            if not prompt:
-                raise e
-    if image != None:
-        image = inpaint_refiner(
-            prompt=prompt,
-            image=image,
-            mask_image=mask_image,
-            num_inference_steps=num_inference_steps,
-            denoising_start=high_noise_frac,
-        ).images[0]
+    """Inpainting function - currently disabled for HDM-only setup."""
+    # TODO: Implement HDM-based inpainting or use alternative approach
+    logger.warning("Inpainting is currently disabled in HDM-only mode")
+    
+    # touch progress.txt file - if we dont do this we get restarted by supervisor/other processes for reliability
+    with open("progress.txt", "w") as f:
+        current_time = datetime.now().strftime("%H:%M:%S")
+        f.write(f"{current_time}")
+    
+    # Return None for now since inpainting is not implemented
+    return None
+    
+    # # Original SDXL inpainting code commented out
+    # prompt = shorten_too_long_text(prompt)
+    # init_image = load_image(image_url).convert("RGB")
+    # mask_image = load_image(mask_url).convert("RGB")
+    # num_inference_steps = 40
+    # high_noise_frac = 0.7
+    # 
+    # generator = torch.Generator("cpu").manual_seed(0)
+    # for attempt in range(retries + 1):
+    #     try:
+    #         image = inpaintpipe(
+    #             prompt=prompt,
+    #             image=init_image,
+    #             mask_image=mask_image,
+    #             num_inference_steps=num_inference_steps,
+    #             denoising_start=high_noise_frac,
+    #             output_type="latent",
+    #         ).images[0]
+    #         break
+    #     except Exception as e:
+    #         if attempt >= retries:
+    #             traceback.print_exc()
+    #             raise
+    #         logger.warning(
+    #             f"Inpainting failed on attempt {attempt + 1}/{retries}: {e}"
+    #         )
+    #         prompt = remove_stopwords(prompt) if attempt == 0 else shorten_prompt_for_retry(prompt)
+    #         if not prompt:
+    #             raise e
+    # if image != None:
+    #     image = inpaint_refiner(
+    #         prompt=prompt,
+    #         image=image,
+    #         mask_image=mask_image,
+    #         num_inference_steps=num_inference_steps,
+    #         denoising_start=high_noise_frac,
+    #     ).images[0]
     # try:
     #     # gc.collect()
     #     torch.cuda.empty_cache()
@@ -910,11 +961,5 @@ def inpaint_image_from_prompt(prompt, image_url: str, mask_url: str, retries=3):
     #     # this could be really annoying if your running other gunicorns on your machine which also get restarted
     #     os.system("/usr/bin/bash kill -SIGHUP `pgrep gunicorn`")
     #     os.system("kill -1 `pgrep gunicorn`")
-
-    # touch progress.txt file - if we dont do this we get restarted by supervisor/other processes for reliability
-    with open("progress.txt", "w") as f:
-        current_time = datetime.now().strftime("%H:%M:%S")
-        f.write(f"{current_time}")
-    return image_to_bytes(image)
 
 
