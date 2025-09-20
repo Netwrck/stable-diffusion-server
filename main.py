@@ -99,7 +99,7 @@ pipe.set_adapters(["lcm"], adapter_weights=[1.0])
 
 
 # quantizing
-from optimum.quanto import freeze, qfloat8, quantize
+#from optimum.quanto import freeze, qfloat8, quantize
 
 # print(pipe.components)
 # # # Quantize and freeze the text_encoder
