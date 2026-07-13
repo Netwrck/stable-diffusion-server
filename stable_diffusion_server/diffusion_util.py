@@ -1,9 +1,12 @@
 import os
 from dataclasses import dataclass
+from contextlib import nullcontext
 
 import torch
 import json
+import numpy as np
 from huggingface_hub import hf_hub_download
+from PIL import Image as PILImage
 from safetensors.torch import load_file as load_sft
 
 from .model import Flux, FluxParams
@@ -13,6 +16,18 @@ from .modules.conditioner import HFEmbedder
 from optimum.quanto import requantize
 
 from safetensors import safe_open
+
+
+def _runtime_ckpt_path(name: str) -> str | None:
+    env_name = name.upper().replace("-", "_").replace(".", "_")
+    return os.getenv(env_name) or configs[name].ckpt_path
+
+
+def _torch_device_context(device_name: str | torch.device):
+    ctx = torch.device(device_name)
+    if hasattr(ctx, "__enter__") and hasattr(ctx, "__exit__"):
+        return ctx
+    return nullcontext()
 
 def load_safetensors(path):
     tensors = {}
@@ -147,20 +162,26 @@ def print_load_warning(missing: list[str], unexpected: list[str]) -> None:
         print(f"Got {len(unexpected)} unexpected keys:\n\t" + "\n\t".join(unexpected))
 
 
-def load_flow_model(name: str, device: str | torch.device = "cuda", hf_download: bool = True):
+def load_flow_model(
+    name: str,
+    device: str | torch.device = "cuda",
+    hf_download: bool = True,
+    cache_dir: str | None = None,
+):
     # Loading Flux
     print("Init model")
-    ckpt_path = configs[name].ckpt_path
+    ckpt_path = _runtime_ckpt_path(name)
     if (
         ckpt_path is None
         and configs[name].repo_id is not None
         and configs[name].repo_flow is not None
         and hf_download
     ):
-        ckpt_path = hf_hub_download(configs[name].repo_id, configs[name].repo_flow)
+        ckpt_path = hf_hub_download(configs[name].repo_id, configs[name].repo_flow, cache_dir=cache_dir)
 
-    with torch.device("meta" if ckpt_path is not None else device):
-        model = Flux(configs[name].params).to(torch.bfloat16)
+    with _torch_device_context("meta" if ckpt_path is not None else device):
+        model = Flux(configs[name].params)
+        model.to(torch.bfloat16)
 
     if ckpt_path is not None:
         print("Loading checkpoint")
@@ -170,19 +191,28 @@ def load_flow_model(name: str, device: str | torch.device = "cuda", hf_download:
         print_load_warning(missing, unexpected)
     return model
     
-def load_flow_model2(name: str, device: str | torch.device = "cuda", hf_download: bool = True):
+def load_flow_model2(
+    name: str,
+    device: str | torch.device = "cuda",
+    hf_download: bool = True,
+    cache_dir: str | None = None,
+):
     # Loading Flux
     print("Init model")
-    ckpt_path = configs[name].ckpt_path
+    ckpt_path = _runtime_ckpt_path(name)
     if (
         ckpt_path is None
         and configs[name].repo_id is not None
         and configs[name].repo_flow is not None
         and hf_download
     ):
-        ckpt_path = hf_hub_download(configs[name].repo_id, configs[name].repo_flow.replace("sft", "safetensors"), )
+        ckpt_path = hf_hub_download(
+            configs[name].repo_id,
+            configs[name].repo_flow.replace("sft", "safetensors"),
+            cache_dir=cache_dir,
+        )
 
-    with torch.device("meta" if ckpt_path is not None else device):
+    with _torch_device_context("meta" if ckpt_path is not None else device):
         model = Flux(configs[name].params)
 
     if ckpt_path is not None:
@@ -193,20 +223,26 @@ def load_flow_model2(name: str, device: str | torch.device = "cuda", hf_download
         print_load_warning(missing, unexpected)
     return model
 
-def load_flow_model_quintized(name: str, device: str | torch.device = "cuda", hf_download: bool = True):
+def load_flow_model_quintized(
+    name: str,
+    device: str | torch.device = "cuda",
+    hf_download: bool = True,
+    cache_dir: str | None = None,
+):
     # Loading Flux
     print("Init model")
-    ckpt_path = configs[name].ckpt_path
+    ckpt_path = _runtime_ckpt_path(name)
     if (
         ckpt_path is None
         and configs[name].repo_id is not None
         and configs[name].repo_flow is not None
         and hf_download
     ):
-        ckpt_path = hf_hub_download(configs[name].repo_id, configs[name].repo_flow)
-    json_path = hf_hub_download(configs[name].repo_id, 'flux_dev_quantization_map.json', )
+        ckpt_path = hf_hub_download(configs[name].repo_id, configs[name].repo_flow, cache_dir=cache_dir)
+    json_path = hf_hub_download(configs[name].repo_id, 'flux_dev_quantization_map.json', cache_dir=cache_dir)
 
-    model = Flux(configs[name].params).to(torch.bfloat16)
+    model = Flux(configs[name].params)
+    model.to(torch.bfloat16)
 
     print("Loading checkpoint")
     # load_sft doesn't support torch.device
@@ -224,16 +260,31 @@ def load_controlnet(name, device, transformer=None):
         controlnet.load_state_dict(transformer.state_dict(), strict=False)
     return controlnet
 
-def load_t5(device: str | torch.device = "cuda", max_length: int = 512) -> HFEmbedder:
+def load_t5(
+    device: str | torch.device = "cuda",
+    max_length: int = 512,
+    cache_dir: str | None = None,
+) -> HFEmbedder:
     # max length 64, 128, 256 and 512 should work (if your sequence is short enough)
-    return HFEmbedder("google/t5-v1_1-xxl", max_length=max_length, torch_dtype=torch.bfloat16).to(device)
+    kwargs = {"torch_dtype": torch.bfloat16}
+    if cache_dir is not None:
+        kwargs["cache_dir"] = cache_dir
+    return HFEmbedder("google/t5-v1_1-xxl", max_length=max_length, **kwargs).to(device)
 
 
-def load_clip(device: str | torch.device = "cuda") -> HFEmbedder:
-    return HFEmbedder("openai/clip-vit-large-patch14", max_length=77, torch_dtype=torch.bfloat16).to(device)
+def load_clip(device: str | torch.device = "cuda", cache_dir: str | None = None) -> HFEmbedder:
+    kwargs = {"torch_dtype": torch.bfloat16}
+    if cache_dir is not None:
+        kwargs["cache_dir"] = cache_dir
+    return HFEmbedder("openai/clip-vit-large-patch14", max_length=77, **kwargs).to(device)
 
 
-def load_ae(name: str, device: str | torch.device = "cuda", hf_download: bool = True) -> AutoEncoder:
+def load_ae(
+    name: str,
+    device: str | torch.device = "cuda",
+    hf_download: bool = True,
+    cache_dir: str | None = None,
+) -> AutoEncoder:
     ckpt_path = configs[name].ae_path
     if (
         ckpt_path is None
@@ -241,11 +292,11 @@ def load_ae(name: str, device: str | torch.device = "cuda", hf_download: bool = 
         and configs[name].repo_ae is not None
         and hf_download
     ):
-        ckpt_path = hf_hub_download(configs[name].repo_id_ae, configs[name].repo_ae)
+        ckpt_path = hf_hub_download(configs[name].repo_id_ae, configs[name].repo_ae, cache_dir=cache_dir)
 
     # Loading the autoencoder
     print("Init AE")
-    with torch.device("meta" if ckpt_path is not None else device):
+    with _torch_device_context("meta" if ckpt_path is not None else device):
         ae = AutoEncoder(configs[name].ae_params)
 
     if ckpt_path is not None:
@@ -257,14 +308,10 @@ def load_ae(name: str, device: str | torch.device = "cuda", hf_download: bool = 
 
 def load_image(image, height: int, width: int):
     """Load and preprocess an image for the model."""
-    import torch
-    from PIL import Image as PILImage
-    import numpy as np
-    
     if isinstance(image, str):
         # If image is a path, load it
         image = PILImage.open(image)
-    elif isinstance(image, PILImage.Image):
+    elif isinstance(image, PILImage.Image) or (hasattr(image, "mode") and hasattr(image, "resize")):
         # If it's already a PIL Image, use it directly
         pass
     else:
@@ -283,7 +330,11 @@ def load_image(image, height: int, width: int):
     image = image.resize((width, height), PILImage.LANCZOS)
     
     # Convert to tensor
-    image_array = np.array(image).astype(np.float32) / 255.0
+    image_array = np.array(image).astype(np.float32)
+    try:
+        image_array = image_array / 255.0
+    except TypeError:
+        pass
     image_tensor = torch.from_numpy(image_array).permute(2, 0, 1).unsqueeze(0)
     
     return image_tensor

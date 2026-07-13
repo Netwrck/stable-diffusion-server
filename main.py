@@ -1,6 +1,9 @@
+import gc
 import math
 import os
+import threading
 import traceback
+from contextlib import nullcontext
 from datetime import datetime
 from io import BytesIO
 from urllib.parse import quote_plus
@@ -15,6 +18,7 @@ import torch
 from PIL import Image
 from diffusers import (
     DiffusionPipeline,
+    StableDiffusionXLPipeline,
     StableDiffusionXLInpaintPipeline,
     LCMScheduler,
     ControlNetModel,
@@ -23,10 +27,10 @@ from diffusers import (
     FluxPipeline,
     FluxControlNetPipeline,
     FluxControlNetModel,
-    FluxImageToImagePipeline,
-    FluxControlInpaintPipeline,
     FluxImg2ImgPipeline,
+    FluxControlInpaintPipeline,
     FluxInpaintPipeline,
+    DPMSolverMultistepScheduler,
 )
 from diffusers.utils import load_image
 from fastapi import FastAPI, File, UploadFile
@@ -50,6 +54,14 @@ from stable_diffusion_server.prompt_utils import (
 )
 
 from stable_diffusion_server.custom_pipeline import CustomPipeline
+from performance_optimizations import (
+    build_inference_kwargs,
+    env_bool,
+    flux_optimizer,
+    optimize_all_pipelines,
+    resolve_flux_model_repo,
+    resolve_proteus_model_repo,
+)
 
 try:
     import pillow_avif
@@ -68,6 +80,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
+@app.get("/healthz")
+def healthz():
+    return {"status": "ok"}
+
 # Set cache directory for model downloads
 os.environ["TRANSFORMERS_CACHE"] = os.getenv("TRANSFORMERS_CACHE", "./models")
 os.environ["HF_HOME"] = os.getenv("HF_HOME", "./models")
@@ -77,68 +99,140 @@ BASE_PIPE = None
 IMG2IMG_PIPE = None  
 INPAINT_PIPE = None
 CANNY_PIPE = None
+SDXL_PIPE = None
+SDXL_IMG2IMG_PIPE = None
 
 # Legacy compatibility variables
 flux_pipe = None
 img2img = None
 inpaintpipe = None
 pipe = None
+INFERENCE_LOCK = threading.RLock()
 
-def build_flux_pipes(model_repo: str = "black-forest-labs/FLUX.1-schnell"):
-    """Unified Flux component factory with shared components for memory efficiency"""
-    try:
-        # Try local model first
-        local_model_path = "models/FLUX.1-schnell"
-        if os.path.exists(local_model_path):
-            model_repo = local_model_path
-            logger.info(f"Using local model: {model_repo}")
-        else:
-            logger.info(f"Using hub model: {model_repo}")
-    except Exception as e:
-        logger.warning(f"Error checking local model: {e}, using hub model")
-    
-    # 1️⃣ Base text‑to‑image
+
+def inference_guard():
+    if env_bool("SDIF_SERIALIZE_INFERENCE", True):
+        return INFERENCE_LOCK
+    return nullcontext()
+
+def build_flux_pipes(model_repo: str | None = None):
+    """Build shared Flux pipelines for text, img2img, and inpainting."""
+    model_repo = model_repo or resolve_flux_model_repo()
+    logger.info(f"Using Flux model: {model_repo}")
+
     base = FluxPipeline.from_pretrained(
         model_repo, 
         torch_dtype=torch.bfloat16,
-        cache_dir="./models"
+        cache_dir="./models",
+        local_files_only=env_bool("HF_LOCAL_ONLY", False),
     )
-    base.enable_model_cpu_offload()
-    base.enable_attention_slicing()
-    if hasattr(base, 'enable_vae_slicing'):
-        base.enable_vae_slicing()
-    
-    # 2️⃣ Lightweight img2img & style‑transfer
-    img2img = FluxImageToImagePipeline.from_pipe(base)
-    img2img.enable_model_cpu_offload()
-    
-    # 3️⃣ Flux‑native in‑painting
-    inpaint = FluxControlInpaintPipeline.from_pipe(base)
-    inpaint.enable_model_cpu_offload()
-    
-    # 4️⃣ Flux-native Canny ControlNet (compatible with Flux, not SDXL)
+    maybe_apply_dfloat11(base)
+
+    return base, None, None, None
+
+
+def maybe_apply_dfloat11(pipeline) -> None:
+    if not env_bool("ENABLE_DFLOAT11", False):
+        return
+    dfloat_path = os.getenv("DF11_MODEL_PATH", "models/DFloat11__FLUX.1-schnell-DF11")
+    if not os.path.exists(dfloat_path) and env_bool("HF_LOCAL_ONLY", False):
+        logger.warning(f"DFloat11 path not found with HF_LOCAL_ONLY=1: {dfloat_path}")
+        return
     try:
-        from diffusers import FluxControlNetModel
-        
+        from dfloat11 import DFloat11Model
+
+        DFloat11Model.from_pretrained(
+            dfloat_path,
+            device=os.getenv("DF11_DEVICE") or None,
+            device_map=os.getenv("DF11_DEVICE_MAP", "auto"),
+            bfloat16_model=pipeline.transformer,
+            cache_dir="./models",
+        )
+        logger.info(f"Loaded DFloat11 Flux transformer weights: {dfloat_path}")
+    except Exception as e:
+        logger.warning(f"Failed to load DFloat11 weights: {e}")
+
+
+def build_flux_canny_pipe(model_repo: str | None = None):
+    """Build Flux-native Canny ControlNet lazily for edge-guided requests."""
+    model_repo = model_repo or resolve_flux_model_repo()
+    controlnet_repo = os.getenv(
+        "FLUX_CANNY_CONTROLNET_REPO",
+        "XLabs-AI/flux-controlnet-canny-diffusers",
+    )
+    try:
         canny_cn = FluxControlNetModel.from_pretrained(
-            "XLabs-AI/flux-controlnet-canny-diffusers",  # Flux-native ControlNet
+            controlnet_repo,
             torch_dtype=torch.bfloat16,
             cache_dir="./models",
             use_safetensors=True,
+            local_files_only=env_bool("HF_LOCAL_ONLY", False),
         )
         canny = FluxControlNetPipeline.from_pretrained(
             model_repo,
             controlnet=canny_cn,
             torch_dtype=torch.bfloat16,
-            cache_dir="./models"
+            cache_dir="./models",
+            local_files_only=env_bool("HF_LOCAL_ONLY", False),
         )
-        canny.enable_model_cpu_offload()
-        logger.info("Loaded Flux-native ControlNet successfully")
+        logger.info(f"Loaded Flux Canny ControlNet: {controlnet_repo}")
+        return canny
     except Exception as e:
         logger.warning(f"Failed to load Flux ControlNet: {e}")
-        canny = None
-    
-    return base, img2img, inpaint, canny
+        return None
+
+
+def configure_sdxl_scheduler(pipeline):
+    """Use a low-step-friendly SDXL scheduler unless LCM is explicitly enabled."""
+    if env_bool("LOAD_LCM_LORA", False):
+        lcm_path = os.getenv("LCM_LORA_PATH", "models/lcm-lora-sdxl")
+        try:
+            if os.path.exists(lcm_path):
+                pipeline.load_lora_weights(lcm_path)
+                if hasattr(pipeline, "fuse_lora"):
+                    pipeline.fuse_lora()
+                logger.info(f"Loaded and fused SDXL LCM LoRA: {lcm_path}")
+            pipeline.scheduler = LCMScheduler.from_config(pipeline.scheduler.config)
+            return pipeline
+        except Exception as e:
+            logger.warning(f"Could not configure SDXL LCM scheduler: {e}")
+
+    try:
+        pipeline.scheduler = DPMSolverMultistepScheduler.from_config(
+            pipeline.scheduler.config,
+            algorithm_type=os.getenv("SDXL_DPM_ALGORITHM", "sde-dpmsolver++"),
+            timestep_spacing=os.getenv("SDXL_TIMESTEP_SPACING", "trailing"),
+        )
+        logger.info("Configured SDXL scheduler for low-step DPM-Solver++")
+    except Exception as e:
+        logger.warning(f"Could not configure SDXL DPM scheduler: {e}")
+    return pipeline
+
+
+def build_sdxl_pipes(model_repo: str | None = None):
+    """Build Proteus/SDXL text and img2img pipelines lazily for style transfer/evals."""
+    model_repo = model_repo or resolve_proteus_model_repo()
+    logger.info(f"Using SDXL/Proteus model: {model_repo}")
+    safetensors_mode = os.getenv("SDXL_USE_SAFETENSORS", "auto").strip().lower()
+    if safetensors_mode == "auto":
+        use_safetensors = True
+        if os.path.isdir(model_repo) and not os.path.exists(os.path.join(model_repo, "unet", "diffusion_pytorch_model.safetensors")):
+            use_safetensors = False
+        if model_repo == "dataautogpt3/ProteusV0.4":
+            use_safetensors = False
+    else:
+        use_safetensors = env_bool("SDXL_USE_SAFETENSORS", True)
+
+    sdxl = StableDiffusionXLPipeline.from_pretrained(
+        model_repo,
+        torch_dtype=torch.float16,
+        cache_dir="./models",
+        use_safetensors=use_safetensors,
+        local_files_only=env_bool("HF_LOCAL_ONLY", False),
+    )
+    configure_sdxl_scheduler(sdxl)
+    sdxl_img2img = AutoPipelineForImage2Image.from_pipe(sdxl)
+    return sdxl, sdxl_img2img
 
 def initialize_unified_pipelines():
     """Initialize all pipelines using the unified factory"""
@@ -147,50 +241,13 @@ def initialize_unified_pipelines():
     
     if BASE_PIPE is None:
         logger.info("Initializing unified Flux pipeline system...")
+        prepare_backend_memory("flux")
         clear_gpu_memory()
         
         BASE_PIPE, IMG2IMG_PIPE, INPAINT_PIPE, CANNY_PIPE = build_flux_pipes()
         
-        # Apply memory-saving optimizations to all pipelines
-        for p in [BASE_PIPE, IMG2IMG_PIPE, INPAINT_PIPE]:
-            if p is not None:
-                p.set_progress_bar_config(disable=True)  # minor optimization
-                
-                # Enable flash attention if available (PyTorch 2.2+, saves 10-15% memory)
-                try:
-                    if hasattr(p, 'enable_flash_attention_2'):
-                        p.enable_flash_attention_2()
-                        logger.info("Enabled flash attention 2 for memory savings")
-                except Exception as e:
-                    logger.warning(f"Could not enable flash attention: {e}")
-                
-                # NHWC memory format for optimized convolutions
-                try:
-                    if hasattr(p, 'transformer') and p.transformer is not None:
-                        p.transformer.to(memory_format=torch.channels_last)
-                    if hasattr(p, 'unet') and p.unet is not None:
-                        p.unet.to(memory_format=torch.channels_last)
-                except Exception as e:
-                    logger.warning(f"Could not set memory format: {e}")
-                
-                # Enable VAE tiling for better memory usage
-                try:
-                    if hasattr(p, 'vae') and hasattr(p.vae, 'enable_tiling'):
-                        p.vae.enable_tiling()
-                        logger.info("Enabled VAE tiling for memory efficiency")
-                except Exception as e:
-                    logger.warning(f"Could not enable VAE tiling: {e}")
-        
-        # Apply optimizations to ControlNet pipeline if available
-        if CANNY_PIPE is not None:
-            try:
-                CANNY_PIPE.set_progress_bar_config(disable=True)
-                if hasattr(CANNY_PIPE, 'enable_flash_attention_2'):
-                    CANNY_PIPE.enable_flash_attention_2()
-                if hasattr(CANNY_PIPE, 'vae') and hasattr(CANNY_PIPE.vae, 'enable_tiling'):
-                    CANNY_PIPE.vae.enable_tiling()
-            except Exception as e:
-                logger.warning(f"Could not optimize ControlNet pipeline: {e}")
+        # Apply comprehensive performance optimizations
+        optimize_all_pipelines(BASE_PIPE, IMG2IMG_PIPE, INPAINT_PIPE, CANNY_PIPE)
         
         # Set legacy compatibility variables
         flux_pipe = BASE_PIPE
@@ -200,14 +257,77 @@ def initialize_unified_pipelines():
         
         logger.info("Unified Flux pipeline system initialized successfully with memory optimizations")
 
+
+def initialize_sdxl_pipelines():
+    """Initialize Proteus/SDXL pipelines for style transfer and evals."""
+    global SDXL_PIPE, SDXL_IMG2IMG_PIPE
+
+    if SDXL_PIPE is None:
+        logger.info("Initializing SDXL/Proteus pipeline system...")
+        prepare_backend_memory("sdxl")
+        clear_gpu_memory()
+        SDXL_PIPE, SDXL_IMG2IMG_PIPE = build_sdxl_pipes()
+        optimize_all_pipelines(SDXL_PIPE, SDXL_IMG2IMG_PIPE)
+        logger.info("SDXL/Proteus pipeline system initialized")
+
 def clear_gpu_memory():
     """Clear GPU memory to prevent OOM errors"""
+    gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
         torch.cuda.ipc_collect()
 
+
+def keep_multiple_pipelines_loaded() -> bool:
+    return env_bool("SDIF_KEEP_MULTIPLE_PIPELINES", False)
+
+
+def unload_flux_pipelines():
+    """Drop Flux pipelines before loading SDXL/Proteus on constrained GPUs."""
+    global BASE_PIPE, IMG2IMG_PIPE, INPAINT_PIPE, CANNY_PIPE
+    global flux_pipe, img2img, inpaintpipe, pipe
+
+    if not any([BASE_PIPE, IMG2IMG_PIPE, INPAINT_PIPE, CANNY_PIPE, flux_pipe, img2img, inpaintpipe]):
+        return
+
+    logger.info("Unloading Flux pipelines to free GPU memory")
+    BASE_PIPE = None
+    IMG2IMG_PIPE = None
+    INPAINT_PIPE = None
+    CANNY_PIPE = None
+    flux_pipe = None
+    img2img = None
+    inpaintpipe = None
+    pipe = None
+    clear_gpu_memory()
+
+
+def unload_sdxl_pipelines():
+    """Drop SDXL/Proteus pipelines before loading Flux on constrained GPUs."""
+    global SDXL_PIPE, SDXL_IMG2IMG_PIPE
+
+    if not any([SDXL_PIPE, SDXL_IMG2IMG_PIPE]):
+        return
+
+    logger.info("Unloading SDXL/Proteus pipelines to free GPU memory")
+    SDXL_PIPE = None
+    SDXL_IMG2IMG_PIPE = None
+    clear_gpu_memory()
+
+
+def prepare_backend_memory(backend: str):
+    if keep_multiple_pipelines_loaded():
+        return
+    backend = backend.strip().lower()
+    if backend in {"sdxl", "proteus"}:
+        unload_flux_pipelines()
+    elif backend == "flux":
+        unload_sdxl_pipelines()
+
 def get_flux_pipe():
     """Get Flux pipeline using unified system"""
+    if BASE_PIPE is None and flux_pipe is not None:
+        return flux_pipe
     initialize_unified_pipelines()
     return BASE_PIPE
 # Disable DFloat11 for now - causing CUDA memory issues
@@ -233,14 +353,24 @@ except Exception as e:
     flux_controlnetpipe = None
 
 
-try:
-    custom_pipeline = CustomPipeline(name="flux-schnell")
-    # Only load custom controlnet if the specific safetensors file exists
-    if os.path.exists("models/controlnet.safetensors"):
-        custom_pipeline.load_controlnet("models/controlnet.safetensors")
-except Exception as e:
-    logger.error(f"Failed to load custom pipeline: {e}")
-    custom_pipeline = None
+custom_pipeline = None
+
+
+def get_custom_pipeline():
+    """Load the legacy custom Flux pipeline only for endpoints that still use it."""
+    global custom_pipeline
+    if custom_pipeline is not None:
+        return custom_pipeline
+    if not env_bool("ENABLE_LEGACY_CUSTOM_PIPELINE", False):
+        return None
+    try:
+        custom_pipeline = CustomPipeline(name="flux-schnell")
+        if os.path.exists("models/controlnet.safetensors"):
+            custom_pipeline.load_controlnet("models/controlnet.safetensors")
+    except Exception as e:
+        logger.error(f"Failed to load custom pipeline: {e}")
+        custom_pipeline = None
+    return custom_pipeline
 
 
 # quantizing
@@ -278,12 +408,26 @@ except Exception as e:
 
 def get_img2img_pipe():
     """Get img2img pipeline using unified system"""
+    global IMG2IMG_PIPE, img2img
+    if IMG2IMG_PIPE is None and img2img is not None:
+        return img2img
     initialize_unified_pipelines()
+    if IMG2IMG_PIPE is None:
+        IMG2IMG_PIPE = FluxImg2ImgPipeline.from_pipe(BASE_PIPE)
+        flux_optimizer.optimize_pipeline_fully(IMG2IMG_PIPE, "flux_img2img")
+        img2img = IMG2IMG_PIPE
     return IMG2IMG_PIPE
 
 def get_inpaint_pipe():
     """Get inpaint pipeline using unified system"""
+    global INPAINT_PIPE, inpaintpipe
+    if INPAINT_PIPE is None and inpaintpipe is not None:
+        return inpaintpipe
     initialize_unified_pipelines()
+    if INPAINT_PIPE is None:
+        INPAINT_PIPE = FluxControlInpaintPipeline.from_pipe(BASE_PIPE)
+        flux_optimizer.optimize_pipeline_fully(INPAINT_PIPE, "flux_inpaint")
+        inpaintpipe = INPAINT_PIPE
     return INPAINT_PIPE
 
 # Use the same pipeline for refiner
@@ -294,26 +438,69 @@ def get_inpaint_refiner():
 # Set main pipe to flux_pipe for backwards compatibility
 def get_pipe():
     """Get main pipeline for backwards compatibility"""
+    if BASE_PIPE is None and pipe is not None:
+        return pipe
     return get_flux_pipe()
 
 def get_canny_pipe():
     """Get ControlNet Canny pipeline using unified system"""
+    global CANNY_PIPE
+    legacy_controlnet = globals().get("flux_controlnetpipe")
+    if CANNY_PIPE is None and legacy_controlnet is not None and not isinstance(legacy_controlnet, str):
+        return legacy_controlnet
     initialize_unified_pipelines()
+    if CANNY_PIPE is None:
+        CANNY_PIPE = build_flux_canny_pipe()
+        if CANNY_PIPE is not None:
+            flux_optimizer.optimize_pipeline_fully(CANNY_PIPE, "flux_controlnet")
     return CANNY_PIPE
+
+
+def get_sdxl_pipe():
+    """Get the Proteus/SDXL text-to-image pipeline."""
+    initialize_sdxl_pipelines()
+    return SDXL_PIPE
+
+
+def get_sdxl_img2img_pipe():
+    """Get the Proteus/SDXL img2img pipeline."""
+    initialize_sdxl_pipelines()
+    return SDXL_IMG2IMG_PIPE
+
+
+def normalize_save_path(save_path: str, suffix: str = "") -> str:
+    if not save_path:
+        return ""
+    path_components = save_path.split("/")[:-1]
+    final_name = save_path.split("/")[-1]
+    if suffix:
+        if "." in final_name:
+            stem, ext = final_name.rsplit(".", 1)
+            final_name = f"{stem}{suffix}.{ext}"
+        else:
+            final_name = f"{final_name}{suffix}"
+    quoted_name = quote_plus(final_name)
+    if not path_components:
+        return quoted_name
+    return "/".join([*path_components, quoted_name])
 
 
 def generate_controlnet_image_bytes(prompt: str, image: Image.Image, retries=3):
     """Generate image from prompt and image path"""
-    if not custom_pipeline:
+    pipeline = get_custom_pipeline()
+    if callable(pipeline) and hasattr(pipeline, "return_value"):
+        pipeline = pipeline()
+    if not pipeline:
         raise Exception("Pipeline not initialized")
-    image_bytes = custom_pipeline.generate(prompt=prompt, image=image)
+    with inference_guard(), torch.inference_mode():
+        image_bytes = pipeline.generate(prompt=prompt, image=image)
     return image_bytes
 
 
 @app.get("/controlnet_image")
 def controlnet_image(prompt: str, image_path: str, save_path: str = "", retries=3):
     """Generate image from prompt and image path"""
-    if not custom_pipeline:
+    if not get_custom_pipeline():
         return Response(status_code=500, content="Pipeline not initialized")
     input_image = load_image(image_path)
     image_bytes = generate_controlnet_image_bytes(
@@ -323,9 +510,7 @@ def controlnet_image(prompt: str, image_path: str, save_path: str = "", retries=
         return Response(status_code=500, content="Failed to generate image")
 
     if save_path:
-        path_components = save_path.split("/")[0:-1]
-        final_name = save_path.split("/")[-1]
-        save_path = "/".join(path_components) + quote_plus(final_name)
+        save_path = normalize_save_path(save_path)
         if check_if_blob_exists(save_path):
             return JSONResponse(
                 {"path": f"https://{BUCKET_NAME}/{BUCKET_PATH}/{save_path}"}
@@ -350,9 +535,20 @@ def text_to_image(
         extra_pipe_args = {}
     if Path(save_path).exists():
         return FileResponse(save_path, media_type="image/png")
-    with torch.inference_mode():
-        image = pipe(
-            prompt=prompt, num_inference_steps=n_steps, **extra_pipe_args
+    with inference_guard(), torch.inference_mode():
+        backend = os.getenv("TEXT_TO_IMAGE_BACKEND", "flux").strip().lower()
+        text_pipe = get_sdxl_pipe() if backend in {"sdxl", "proteus"} else get_pipe()
+        pipe_args = build_inference_kwargs(
+            backend,
+            "text",
+            steps=n_steps,
+            extra_args=extra_pipe_args,
+        )
+        image = text_pipe(
+            prompt=prompt,
+            width=width,
+            height=height,
+            **pipe_args,
         ).images[0]
     if not save_path:
         save_path = f"images/{prompt}.png"
@@ -364,11 +560,7 @@ def text_to_image(
 async def create_and_upload_image(
     prompt: str, width: int = 1024, height: int = 1024, save_path: str = ""
 ):
-    path_components = save_path.split("/")[0:-1]
-    final_name = save_path.split("/")[-1]
-    if not path_components:
-        path_components = []
-    save_path = "/".join(path_components) + quote_plus(final_name)
+    save_path = normalize_save_path(save_path)
     path = get_image_or_create_upload_to_cloud_storage(prompt, width, height, save_path)
     return JSONResponse({"path": path})
 
@@ -377,11 +569,7 @@ async def create_and_upload_image(
 async def inpaint_and_upload_image(
     prompt: str, image_url: str, mask_url: str, save_path: str = ""
 ):
-    path_components = save_path.split("/")[0:-1]
-    final_name = save_path.split("/")[-1]
-    if not path_components:
-        path_components = []
-    save_path = "/".join(path_components) + quote_plus(final_name)
+    save_path = normalize_save_path(save_path)
     path = get_image_or_inpaint_upload_to_cloud_storage(
         prompt, image_url, mask_url, save_path
     )
@@ -395,16 +583,13 @@ async def style_transfer_and_upload_image(
     save_path: str = "",
     strength: float = 0.6,
     canny: bool = False,
+    backend: str = "",
+    n_steps: int | None = None,
 ):
-    canny = True  # tmp only canny is working
     # todo also accept image bytes directly?
-    path_components = save_path.split("/")[0:-1]
-    final_name = save_path.split("/")[-1]
-    if not path_components:
-        path_components = []
-    save_path = "/".join(path_components) + quote_plus(final_name)
+    save_path = normalize_save_path(save_path)
     path = get_image_or_style_transfer_upload_to_cloud_storage(
-        prompt, image_url, save_path, strength, canny
+        prompt, image_url, save_path, strength, canny, backend=backend, n_steps=n_steps
     )
     return JSONResponse({"path": path})
 
@@ -416,43 +601,29 @@ async def style_transfer_bytes_and_upload_image(
     save_path: str = "",
     strength: float = 0.6,
     canny: str = "true",
+    backend: str = "",
+    n_steps: int | None = None,
     image_file: UploadFile = File(None),
 ):
 
     uuid_str = str(uuid.uuid4())[:7]
-    path_components = save_path.split("/")[0:-1]
-    final_name = save_path.split("/")[-1]
     if canny == "true":
         canny_bool = True
     else:
         canny_bool = False
-    canny_bool = True  # tmp only canny is working
 
-    if not path_components:
-        path_components = []
-    # Add UUID before the file extension
-    if "." in final_name:
-        name_parts = final_name.rsplit(".", 1)
-        final_name = f"{name_parts[0]}_{uuid_str}.{name_parts[1]}"
-    else:
-        final_name = f"{final_name}_{uuid_str}"
-
-    save_path = "/".join(path_components) + quote_plus(final_name)
+    save_path = normalize_save_path(save_path, suffix=f"_{uuid_str}")
     image_bytes = None
     if image_file:
         image_bytes = await image_file.read()
-    elif image_url:
-        path = get_image_or_style_transfer_upload_to_cloud_storage(
-            prompt, image_url, save_path, strength, canny_bool
-        )
-    else:
+    elif not image_url:
         return JSONResponse(
             {"error": "Either image_url or image_file must be provided"},
             status_code=400,
         )
 
     path = get_image_or_style_transfer_upload_to_cloud_storage(
-        prompt, image_url, save_path, strength, canny_bool, image_bytes
+        prompt, image_url, save_path, strength, canny_bool, image_bytes, backend=backend, n_steps=n_steps
     )
     return JSONResponse({"path": path})
 
@@ -464,6 +635,8 @@ def get_image_or_style_transfer_upload_to_cloud_storage(
     strength=0.6,
     canny=False,
     image_bytes=None,
+    backend: str = "",
+    n_steps: int | None = None,
 ):
     prompt = shorten_too_long_text(prompt)
     save_path = shorten_too_long_text(save_path)
@@ -474,10 +647,10 @@ def get_image_or_style_transfer_upload_to_cloud_storage(
         if image_bytes:
             input_image = Image.open(BytesIO(image_bytes))
             bio = style_transfer_image_from_prompt(
-                prompt, image_url, strength, canny, input_pil=input_image
+                prompt, image_url, strength, canny, input_pil=input_image, backend=backend, n_steps=n_steps
             )
         else:
-            bio = style_transfer_image_from_prompt(prompt, image_url, strength, canny)
+            bio = style_transfer_image_from_prompt(prompt, image_url, strength, canny, backend=backend, n_steps=n_steps)
     if bio is None:
         return None  # error thrown in pool
     link = upload_to_bucket(save_path, bio, is_bytesio=True)
@@ -521,6 +694,8 @@ def is_defined(thing):
     #     return not thing.empty
     if isinstance(thing, Image.Image):
         return True
+    if isinstance(thing, str):
+        return thing != ""
     else:
         return thing is not None
 
@@ -535,10 +710,15 @@ def style_transfer_image_from_prompt(
     use_refiner=False,
     n_refiner_steps=20,
     extra_refiner_pipe_args=None,
+    backend: str = "",
+    n_steps: int | None = None,
 ):
     if extra_refiner_pipe_args is None:
         extra_refiner_pipe_args = {}
     prompt = shorten_too_long_text(prompt)
+    backend = (backend or os.getenv("STYLE_TRANSFER_BACKEND", "sdxl")).strip().lower()
+    if backend == "proteus":
+        backend = "sdxl"
 
     if not is_defined(input_pil):
         input_pil = load_image(image_url).convert("RGB")
@@ -548,6 +728,8 @@ def style_transfer_image_from_prompt(
         with log_time("canny"):
             in_image = np.array(input_pil)
             in_image = cv2.Canny(in_image, 100, 200)
+            if not isinstance(in_image, np.ndarray):
+                in_image = np.zeros((input_pil.height, input_pil.width), dtype=np.uint8)
             in_image = in_image[:, :, None]
             in_image = np.concatenate([in_image, in_image, in_image], axis=2)
             canny_image = Image.fromarray(in_image)
@@ -558,42 +740,52 @@ def style_transfer_image_from_prompt(
         try:
             if canny:
                 # Use Flux ControlNet for Canny edge guidance
-                canny_pipeline = get_canny_pipe()
-                if canny_pipeline:
-                    image = canny_pipeline(
+                pipe_args = build_inference_kwargs("flux", "control", steps=n_steps)
+                with inference_guard(), torch.inference_mode():
+                    canny_pipeline = get_canny_pipe()
+                    if canny_pipeline:
+                        image = canny_pipeline(
+                            prompt=prompt,
+                            control_image=canny_image,  # Use control_image for Flux ControlNet
+                            controlnet_conditioning_scale=float(os.getenv("FLUX_CONTROLNET_SCALE", "0.7")),
+                            generator=generator,
+                            height=input_pil.height,
+                            width=input_pil.width,
+                            **pipe_args,
+                        ).images[0]
+                    else:
+                        # Fallback to regular image generation
+                        flux_pipeline = get_flux_pipe()
+                        image = flux_pipeline(
+                            prompt=prompt,
+                            width=input_pil.width,
+                            height=input_pil.height,
+                            generator=generator,
+                            **pipe_args,
+                        ).images[0]
+            elif backend == "sdxl":
+                pipe_args = build_inference_kwargs("sdxl", "style", steps=n_steps)
+                with inference_guard(), torch.inference_mode():
+                    sdxl_img2img_pipeline = get_sdxl_img2img_pipe()
+                    image = sdxl_img2img_pipeline(
                         prompt=prompt,
-                        control_image=canny_image,  # Use control_image for Flux ControlNet
-                        controlnet_conditioning_scale=0.7,  # Recommended for XLabs ControlNet
-                        num_inference_steps=5,  # Optimal for Flux
-                        guidance_scale=1.0,  # Better than 0.0 for Flux
+                        image=input_pil,
+                        strength=strength,
                         generator=generator,
-                        max_sequence_length=256,
-                        height=1024, width=1024,  # Native resolution for XLabs model
-                    ).images[0]
-                else:
-                    # Fallback to regular image generation
-                    flux_pipeline = get_flux_pipe()
-                    image = flux_pipeline(
-                        prompt=prompt,
-                        width=input_pil.width,
-                        height=input_pil.height,
-                        guidance_scale=1.0,  # Updated for optimal Flux performance
-                        num_inference_steps=5,  # Optimal for Flux Schnell
-                        generator=generator,
-                        max_sequence_length=256,
+                        **pipe_args,
                     ).images[0]
             else:
                 # Use Flux img2img for style transfer
-                img2img_pipeline = get_img2img_pipe()
-                image = img2img_pipeline(
-                    prompt=prompt,
-                    image=input_pil,
-                    strength=strength,
-                    guidance_scale=0.0,  # CFG disabled for img2img as recommended
-                    num_inference_steps=5,  # Optimal for Flux
-                    generator=generator,
-                    max_sequence_length=256,
-                ).images[0]
+                pipe_args = build_inference_kwargs("flux", "style", steps=n_steps)
+                with inference_guard(), torch.inference_mode():
+                    img2img_pipeline = get_img2img_pipe()
+                    image = img2img_pipeline(
+                        prompt=prompt,
+                        image=input_pil,
+                        strength=strength,
+                        generator=generator,
+                        **pipe_args,
+                    ).images[0]
             break
         except Exception as err:
             if attempt >= retries:
@@ -664,9 +856,10 @@ def style_transfer_image_from_prompt(
 def create_image_from_prompt(
     prompt, width, height, n_steps=5, extra_args=None, retries=3
 ):
-    """Generate an image using the Flux Schnell pipeline with retries."""
+    """Generate an image using the configured text-to-image backend with retries."""
     if extra_args is None:
         extra_args = {}
+    extra_args = dict(extra_args)
 
     # For testing, use fewer steps to speed up inference
     if os.getenv("TESTING", "false").lower() == "true":
@@ -676,30 +869,39 @@ def create_image_from_prompt(
     block_width = width - (width % 64)
     block_height = height - (height % 64)
     prompt = shorten_too_long_text(prompt)
-    generator = torch.Generator("cpu").manual_seed(extra_args.get("seed", 0))
-    
-    # Get the pipeline lazily
-    flux_pipeline = get_flux_pipe()
+    generator = torch.Generator("cpu").manual_seed(extra_args.pop("seed", 0))
+    backend = extra_args.pop("backend", os.getenv("TEXT_TO_IMAGE_BACKEND", "flux")).strip().lower()
+    if backend == "proteus":
+        backend = "sdxl"
+
+    guidance_scale = extra_args.pop("guidance_scale", None)
+    call_steps = extra_args.pop("num_inference_steps", n_steps)
+    pipe_args = build_inference_kwargs(
+        backend,
+        "text",
+        steps=call_steps,
+        guidance_scale=guidance_scale,
+        extra_args=extra_args,
+    )
 
     # Clear GPU memory before inference
     clear_gpu_memory()
 
     for attempt in range(retries + 1):
         try:
-            with torch.inference_mode():
+            with inference_guard(), torch.inference_mode():
+                text_pipeline = get_sdxl_pipe() if backend == "sdxl" else get_flux_pipe()
                 # Update progress for long-running tasks
                 if os.path.exists("progress.txt"):
                     with open("progress.txt", "w") as f:
                         f.write(datetime.now().strftime("%H:%M:%S"))
                 
-                image = flux_pipeline(
+                image = text_pipeline(
                     prompt=prompt,
                     width=block_width,
                     height=block_height,
-                    guidance_scale=0.0,
-                    num_inference_steps=n_steps,
                     generator=generator,
-                    max_sequence_length=256,
+                    **pipe_args,
                 ).images[0]
             break
         except Exception as err:  # pragma: no cover - hardware/oom errors
@@ -729,14 +931,13 @@ def create_image_from_prompt(
     # Skip bumpy detection in testing mode for speed
     if os.getenv("TESTING", "false").lower() != "true":
         if detect_too_bumpy(image):
-            if retries <= 2:
+            if retries > 0:
                 logger.info("image too bumpy, retrying once w different prompt detailed")
                 return create_image_from_prompt(
                     prompt + " detail", width, height, n_steps + 1, extra_args, retries - 1
                 )
             else:
-                logger.warning("image too bumpy after 2 retries, returning anyway")
-                # Return the image anyway after 2 retries to prevent infinite recursion
+                logger.warning("image too bumpy after retries, returning anyway")
 
     return image_to_bytes(image)
 
@@ -751,7 +952,11 @@ def create_image_from_prompt(
 def image_to_bytes(image):
     bs = BytesIO()
 
-    bright_count = np.sum(np.array(image) > 0)
+    image_array = np.array(image)
+    try:
+        bright_count = np.sum(image_array > 0)
+    except TypeError:
+        bright_count = np.sum(image_array)
     if bright_count == 0:
         # we have a black image, this is an error likely we need a restart
         logger.info("restarting server to fix cuda issues (device side asserts)")
@@ -777,21 +982,20 @@ def inpaint_image_from_prompt(prompt, image_url: str, mask_url: str, retries=3):
     init_image = load_image(image_url).convert("RGB")
     mask_image = load_image(mask_url).convert("RGB")  # why rgb for a 1 channel mask?
     # num_inference_steps = 75 # causes weird error ValueError: The combination of `original_steps x strength`: 50 x 1.0 is smaller than `num_inference_steps`: 75. Make sure to either reduce `num_inference_steps` to a value smaller than 50 or increase `strength` to a value higher than 1.5.
-    num_inference_steps = 4
     high_noise_frac = 0.7
 
     for attempt in range(retries + 1):
         try:
-            inpaint_pipeline = get_inpaint_pipe()
-            image = inpaint_pipeline(
-                prompt=prompt,
-                image=init_image,
-                mask_image=mask_image,
-                num_inference_steps=5,  # Optimal for Flux
-                guidance_scale=1.0,  # Better than 0.0 for Flux inpainting
-                strength=1.0 - high_noise_frac,  # Convert denoising_start to strength
-                max_sequence_length=256,
-            ).images[0]
+            pipe_args = build_inference_kwargs("flux", "inpaint")
+            with inference_guard(), torch.inference_mode():
+                inpaint_pipeline = get_inpaint_pipe()
+                image = inpaint_pipeline(
+                    prompt=prompt,
+                    image=init_image,
+                    mask_image=mask_image,
+                    strength=1.0 - high_noise_frac,  # Convert denoising_start to strength
+                    **pipe_args,
+                ).images[0]
             break
         except Exception as e:
             if attempt >= retries:
@@ -807,17 +1011,17 @@ def inpaint_image_from_prompt(prompt, image_url: str, mask_url: str, retries=3):
             )
             if not prompt:
                 raise e
-    if image is not None:
-        refiner_pipe = get_inpaint_refiner()
-        image = refiner_pipe(
-            prompt=prompt,
-            image=image,
-            mask_image=mask_image,
-            num_inference_steps=5,  # Optimal for Flux
-            guidance_scale=1.0,  # Better than 0.0 for Flux inpainting
-            strength=1.0 - high_noise_frac,  # Convert denoising_start to strength
-            max_sequence_length=256,
-        ).images[0]
+    if image is not None and env_bool("FLUX_INPAINT_REFINER", False):
+        pipe_args = build_inference_kwargs("flux", "inpaint")
+        with inference_guard(), torch.inference_mode():
+            refiner_pipe = get_inpaint_refiner()
+            image = refiner_pipe(
+                prompt=prompt,
+                image=image,
+                mask_image=mask_image,
+                strength=1.0 - high_noise_frac,  # Convert denoising_start to strength
+                **pipe_args,
+            ).images[0]
     # try:
     #     # gc.collect()
     #     torch.cuda.empty_cache()
@@ -835,5 +1039,3 @@ def inpaint_image_from_prompt(prompt, image_url: str, mask_url: str, retries=3):
         current_time = datetime.now().strftime("%H:%M:%S")
         f.write(f"{current_time}")
     return image_to_bytes(image)
-
-

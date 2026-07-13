@@ -1,0 +1,290 @@
+{
+  "benchmark_info": {
+    "timestamp": "2025-09-01T11:22:28.083844",
+    "torch_version": "2.7.1+cu126",
+    "cuda_available": true,
+    "gpu_name": "NVIDIA GeForce RTX 3090",
+    "system_memory_gb": 62.73576354980469
+  },
+  "text_to_image_tests": [
+    {
+      "test_type": "text_to_image",
+      "test_id": "t2i_1",
+      "prompt": "a beautiful landscape with mountains and lake, photorealistic",
+      "success": false,
+      "error": "'NoneType' object is not callable",
+      "traceback": "Traceback (most recent call last):\n  File \"/home/lee/code/sdif/benchmark_flux.py\", line 99, in benchmark_text_to_image\n    image = BASE_PIPE(\n            ^^^^^^^^^^\nTypeError: 'NoneType' object is not callable\n",
+      "initial_memory": {
+        "ram_mb": 40081.26953125,
+        "ram_gb": 39.14186477661133,
+        "vram_allocated_mb": 0.0,
+        "vram_cached_mb": 0.0,
+        "vram_allocated_gb": 0.0,
+        "vram_cached_gb": 0.0
+      },
+      "final_memory": {
+        "ram_mb": 40074.51953125,
+        "ram_gb": 39.13527297973633,
+        "vram_allocated_mb": 0.0,
+        "vram_cached_mb": 0.0,
+        "vram_allocated_gb": 0.0,
+        "vram_cached_gb": 0.0
+      }
+    },
+    {
+      "test_type": "text_to_image",
+      "test_id": "t2i_2",
+      "prompt": "anime style character, detailed art, vibrant colors",
+      "success": false,
+      "error": "'NoneType' object is not callable",
+      "traceback": "Traceback (most recent call last):\n  File \"/home/lee/code/sdif/benchmark_flux.py\", line 99, in benchmark_text_to_image\n    image = BASE_PIPE(\n            ^^^^^^^^^^\nTypeError: 'NoneType' object is not callable\n",
+      "initial_memory": {
+        "ram_mb": 40074.14453125,
+        "ram_gb": 39.13490676879883,
+        "vram_allocated_mb": 0.0,
+        "vram_cached_mb": 0.0,
+        "vram_allocated_gb": 0.0,
+        "vram_cached_gb": 0.0
+      },
+      "final_memory": {
+        "ram_mb": 40073.76953125,
+        "ram_gb": 39.13454055786133,
+        "vram_allocated_mb": 0.0,
+        "vram_cached_mb": 0.0,
+        "vram_allocated_gb": 0.0,
+        "vram_cached_gb": 0.0
+      }
+    },
+    {
+      "test_type": "text_to_image",
+      "test_id": "t2i_3",
+      "prompt": "abstract geometric patterns, modern art style",
+      "success": false,
+      "error": "'NoneType' object is not callable",
+      "traceback": "Traceback (most recent call last):\n  File \"/home/lee/code/sdif/benchmark_flux.py\", line 99, in benchmark_text_to_image\n    image = BASE_PIPE(\n            ^^^^^^^^^^\nTypeError: 'NoneType' object is not callable\n",
+      "initial_memory": {
+        "ram_mb": 40073.20703125,
+        "ram_gb": 39.13399124145508,
+        "vram_allocated_mb": 0.0,
+        "vram_cached_mb": 0.0,
+        "vram_allocated_gb": 0.0,
+        "vram_cached_gb": 0.0
+      },
+      "final_memory": {
+        "ram_mb": 40072.83203125,
+        "ram_gb": 39.13362503051758,
+        "vram_allocated_mb": 0.0,
+        "vram_cached_mb": 0.0,
+        "vram_allocated_gb": 0.0,
+        "vram_cached_gb": 0.0
+      }
+    },
+    {
+      "test_type": "text_to_image",
+      "test_id": "t2i_4",
+      "prompt": "portrait of a person, studio lighting, professional photo",
+      "success": false,
+      "error": "'NoneType' object is not callable",
+      "traceback": "Traceback (most recent call last):\n  File \"/home/lee/code/sdif/benchmark_flux.py\", line 99, in benchmark_text_to_image\n    image = BASE_PIPE(\n            ^^^^^^^^^^\nTypeError: 'NoneType' object is not callable\n",
+      "initial_memory": {
+        "ram_mb": 40072.64453125,
+        "ram_gb": 39.13344192504883,
+        "vram_allocated_mb": 0.0,
+        "vram_cached_mb": 0.0,
+        "vram_allocated_gb": 0.0,
+        "vram_cached_gb": 0.0
+      },
+      "final_memory": {
+        "ram_mb": 40072.08203125,
+        "ram_gb": 39.13289260864258,
+        "vram_allocated_mb": 0.0,
+        "vram_cached_mb": 0.0,
+        "vram_allocated_gb": 0.0,
+        "vram_cached_gb": 0.0
+      }
+    },
+    {
+      "test_type": "text_to_image",
+      "test_id": "t2i_5",
+      "prompt": "fantasy dragon in a mystical forest, epic scene",
+      "success": false,
+      "error": "'NoneType' object is not callable",
+      "traceback": "Traceback (most recent call last):\n  File \"/home/lee/code/sdif/benchmark_flux.py\", line 99, in benchmark_text_to_image\n    image = BASE_PIPE(\n            ^^^^^^^^^^\nTypeError: 'NoneType' object is not callable\n",
+      "initial_memory": {
+        "ram_mb": 40071.70703125,
+        "ram_gb": 39.13252639770508,
+        "vram_allocated_mb": 0.0,
+        "vram_cached_mb": 0.0,
+        "vram_allocated_gb": 0.0,
+        "vram_cached_gb": 0.0
+      },
+      "final_memory": {
+        "ram_mb": 40071.33203125,
+        "ram_gb": 39.13216018676758,
+        "vram_allocated_mb": 0.0,
+        "vram_cached_mb": 0.0,
+        "vram_allocated_gb": 0.0,
+        "vram_cached_gb": 0.0
+      }
+    }
+  ],
+  "img_to_img_tests": [
+    {
+      "test_type": "img_to_img",
+      "test_id": "i2i_1",
+      "prompt": "a beautiful landscape with mountains and lake, photorealistic",
+      "success": false,
+      "error": "'NoneType' object is not callable",
+      "traceback": "Traceback (most recent call last):\n  File \"/home/lee/code/sdif/benchmark_flux.py\", line 162, in benchmark_img_to_img\n    image = IMG2IMG_PIPE(\n            ^^^^^^^^^^^^^\nTypeError: 'NoneType' object is not callable\n",
+      "initial_memory": {
+        "ram_mb": 40070.95703125,
+        "ram_gb": 39.13179397583008,
+        "vram_allocated_mb": 0.0,
+        "vram_cached_mb": 0.0,
+        "vram_allocated_gb": 0.0,
+        "vram_cached_gb": 0.0
+      },
+      "final_memory": {
+        "ram_mb": 40065.33203125,
+        "ram_gb": 39.12630081176758,
+        "vram_allocated_mb": 0.0,
+        "vram_cached_mb": 0.0,
+        "vram_allocated_gb": 0.0,
+        "vram_cached_gb": 0.0
+      }
+    },
+    {
+      "test_type": "img_to_img",
+      "test_id": "i2i_2",
+      "prompt": "anime style character, detailed art, vibrant colors",
+      "success": false,
+      "error": "'NoneType' object is not callable",
+      "traceback": "Traceback (most recent call last):\n  File \"/home/lee/code/sdif/benchmark_flux.py\", line 162, in benchmark_img_to_img\n    image = IMG2IMG_PIPE(\n            ^^^^^^^^^^^^^\nTypeError: 'NoneType' object is not callable\n",
+      "initial_memory": {
+        "ram_mb": 40064.76953125,
+        "ram_gb": 39.12575149536133,
+        "vram_allocated_mb": 0.0,
+        "vram_cached_mb": 0.0,
+        "vram_allocated_gb": 0.0,
+        "vram_cached_gb": 0.0
+      },
+      "final_memory": {
+        "ram_mb": 40063.64453125,
+        "ram_gb": 39.12465286254883,
+        "vram_allocated_mb": 0.0,
+        "vram_cached_mb": 0.0,
+        "vram_allocated_gb": 0.0,
+        "vram_cached_gb": 0.0
+      }
+    },
+    {
+      "test_type": "img_to_img",
+      "test_id": "i2i_3",
+      "prompt": "abstract geometric patterns, modern art style",
+      "success": false,
+      "error": "'NoneType' object is not callable",
+      "traceback": "Traceback (most recent call last):\n  File \"/home/lee/code/sdif/benchmark_flux.py\", line 162, in benchmark_img_to_img\n    image = IMG2IMG_PIPE(\n            ^^^^^^^^^^^^^\nTypeError: 'NoneType' object is not callable\n",
+      "initial_memory": {
+        "ram_mb": 40063.45703125,
+        "ram_gb": 39.12446975708008,
+        "vram_allocated_mb": 0.0,
+        "vram_cached_mb": 0.0,
+        "vram_allocated_gb": 0.0,
+        "vram_cached_gb": 0.0
+      },
+      "final_memory": {
+        "ram_mb": 40062.33203125,
+        "ram_gb": 39.12337112426758,
+        "vram_allocated_mb": 0.0,
+        "vram_cached_mb": 0.0,
+        "vram_allocated_gb": 0.0,
+        "vram_cached_gb": 0.0
+      }
+    },
+    {
+      "test_type": "img_to_img",
+      "test_id": "i2i_4",
+      "prompt": "portrait of a person, studio lighting, professional photo",
+      "success": false,
+      "error": "'NoneType' object is not callable",
+      "traceback": "Traceback (most recent call last):\n  File \"/home/lee/code/sdif/benchmark_flux.py\", line 162, in benchmark_img_to_img\n    image = IMG2IMG_PIPE(\n            ^^^^^^^^^^^^^\nTypeError: 'NoneType' object is not callable\n",
+      "initial_memory": {
+        "ram_mb": 40061.95703125,
+        "ram_gb": 39.12300491333008,
+        "vram_allocated_mb": 0.0,
+        "vram_cached_mb": 0.0,
+        "vram_allocated_gb": 0.0,
+        "vram_cached_gb": 0.0
+      },
+      "final_memory": {
+        "ram_mb": 40060.83203125,
+        "ram_gb": 39.12190628051758,
+        "vram_allocated_mb": 0.0,
+        "vram_cached_mb": 0.0,
+        "vram_allocated_gb": 0.0,
+        "vram_cached_gb": 0.0
+      }
+    },
+    {
+      "test_type": "img_to_img",
+      "test_id": "i2i_5",
+      "prompt": "fantasy dragon in a mystical forest, epic scene",
+      "success": false,
+      "error": "'NoneType' object is not callable",
+      "traceback": "Traceback (most recent call last):\n  File \"/home/lee/code/sdif/benchmark_flux.py\", line 162, in benchmark_img_to_img\n    image = IMG2IMG_PIPE(\n            ^^^^^^^^^^^^^\nTypeError: 'NoneType' object is not callable\n",
+      "initial_memory": {
+        "ram_mb": 40060.64453125,
+        "ram_gb": 39.12172317504883,
+        "vram_allocated_mb": 0.0,
+        "vram_cached_mb": 0.0,
+        "vram_allocated_gb": 0.0,
+        "vram_cached_gb": 0.0
+      },
+      "final_memory": {
+        "ram_mb": 40059.51953125,
+        "ram_gb": 39.12062454223633,
+        "vram_allocated_mb": 0.0,
+        "vram_cached_mb": 0.0,
+        "vram_allocated_gb": 0.0,
+        "vram_cached_gb": 0.0
+      }
+    }
+  ],
+  "step_variation_tests": [
+    {
+      "test_type": "step_variation",
+      "steps": 1,
+      "success": false,
+      "error": "'NoneType' object is not callable"
+    },
+    {
+      "test_type": "step_variation",
+      "steps": 2,
+      "success": false,
+      "error": "'NoneType' object is not callable"
+    },
+    {
+      "test_type": "step_variation",
+      "steps": 4,
+      "success": false,
+      "error": "'NoneType' object is not callable"
+    },
+    {
+      "test_type": "step_variation",
+      "steps": 8,
+      "success": false,
+      "error": "'NoneType' object is not callable"
+    },
+    {
+      "test_type": "step_variation",
+      "steps": 16,
+      "success": false,
+      "error": "'NoneType' object is not callable"
+    }
+  ],
+  "summary": {
+    "total_tests": 15,
+    "successful_tests": 0,
+    "failed_tests": 15
+  }
+}

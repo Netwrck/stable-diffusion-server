@@ -1,0 +1,54 @@
+{
+  "created_at": "2026-07-07T20:40:04.455182",
+  "torch_version": "2.7.1+cu126",
+  "cuda_available": true,
+  "gpu_name": "NVIDIA GeForce RTX 3090",
+  "env": {
+    "SDIF_OPTIMIZATION_PROFILE": "fast",
+    "SDIF_CACHE_MODE": "none",
+    "SDIF_FIRST_BLOCK_CACHE_THRESHOLD": null,
+    "SDIF_TORCH_COMPILE": null,
+    "SDXL_USE_AYS": null,
+    "PROTEUS_MODEL_REPO": null,
+    "FLUX_MODEL_REPO": null
+  },
+  "results": [
+    {
+      "model": "flux",
+      "task": "text",
+      "prompt": "a cinematic portrait of a friendly explorer, soft studio lighting, detailed",
+      "width": 512,
+      "height": 512,
+      "steps_requested": 4,
+      "kwargs": {
+        "num_inference_steps": 4,
+        "guidance_scale": 0.0,
+        "max_sequence_length": 128
+      },
+      "latency_s": 20.4515860658139,
+      "seed": 42,
+      "memory_before": {
+        "ram_gb": 24.45425796508789,
+        "vram_allocated_gb": 0.0,
+        "vram_reserved_gb": 0.0,
+        "vram_peak_gb": 0.0
+      },
+      "memory_after": {
+        "ram_gb": 26.531288146972656,
+        "vram_allocated_gb": 0.6407480239868164,
+        "vram_reserved_gb": 0.66015625,
+        "vram_peak_gb": 15.994904041290283
+      },
+      "output_path": "benchmark_outputs/flux_df11_512/20260707_203906/flux/text/steps_4_run_0.webp"
+    }
+  ],
+  "summary": {
+    "flux:text:4": {
+      "count": 1,
+      "avg_latency_s": 20.4515860658139,
+      "min_latency_s": 20.4515860658139,
+      "max_latency_s": 20.4515860658139,
+      "max_peak_vram_gb": 15.994904041290283
+    }
+  }
+}

@@ -1,0 +1,155 @@
+{
+  "created_at": "2026-07-07T20:43:43.221340",
+  "torch_version": "2.7.1+cu126",
+  "cuda_available": true,
+  "gpu_name": "NVIDIA GeForce RTX 3090",
+  "env": {
+    "SDIF_OPTIMIZATION_PROFILE": "fast",
+    "SDIF_CACHE_MODE": "none",
+    "SDIF_FIRST_BLOCK_CACHE_THRESHOLD": null,
+    "SDIF_TORCH_COMPILE": null,
+    "SDXL_USE_AYS": null,
+    "PROTEUS_MODEL_REPO": "models/ProteusV0.2",
+    "FLUX_MODEL_REPO": null
+  },
+  "results": [
+    {
+      "model": "proteus",
+      "task": "text",
+      "prompt": "a cinematic portrait of a friendly explorer, soft studio lighting, detailed",
+      "width": 512,
+      "height": 512,
+      "steps_requested": 20,
+      "kwargs": {
+        "guidance_scale": 5.0,
+        "num_inference_steps": 20
+      },
+      "latency_s": 2.744114118628204,
+      "seed": 42,
+      "memory_before": {
+        "ram_gb": 8.31982421875,
+        "vram_allocated_gb": 6.5689520835876465,
+        "vram_reserved_gb": 6.888671875,
+        "vram_peak_gb": 6.5689520835876465
+      },
+      "memory_after": {
+        "ram_gb": 8.50677490234375,
+        "vram_allocated_gb": 6.578519821166992,
+        "vram_reserved_gb": 8.87890625,
+        "vram_peak_gb": 7.843397617340088
+      },
+      "output_path": "benchmark_outputs/proteus_v02_512/20260707_204320/proteus/text/steps_20_run_0.webp"
+    },
+    {
+      "model": "proteus",
+      "task": "text",
+      "prompt": "a cinematic portrait of a friendly explorer, soft studio lighting, detailed",
+      "width": 512,
+      "height": 512,
+      "steps_requested": 4,
+      "kwargs": {
+        "guidance_scale": 5.0,
+        "num_inference_steps": 4
+      },
+      "latency_s": 0.6553320307284594,
+      "seed": 42,
+      "memory_before": {
+        "ram_gb": 8.50823974609375,
+        "vram_allocated_gb": 6.578519821166992,
+        "vram_reserved_gb": 6.98046875,
+        "vram_peak_gb": 6.578519821166992
+      },
+      "memory_after": {
+        "ram_gb": 8.50823974609375,
+        "vram_allocated_gb": 6.578763961791992,
+        "vram_reserved_gb": 8.931640625,
+        "vram_peak_gb": 7.842909336090088
+      },
+      "output_path": "benchmark_outputs/proteus_v02_512/20260707_204320/proteus/text/steps_4_run_0.webp"
+    },
+    {
+      "model": "proteus",
+      "task": "style",
+      "prompt": "a cinematic portrait of a friendly explorer, soft studio lighting, detailed",
+      "width": 512,
+      "height": 512,
+      "steps_requested": 20,
+      "kwargs": {
+        "guidance_scale": 5.0,
+        "num_inference_steps": 20
+      },
+      "latency_s": 1.5005702190101147,
+      "seed": 42,
+      "memory_before": {
+        "ram_gb": 8.50823974609375,
+        "vram_allocated_gb": 6.578763961791992,
+        "vram_reserved_gb": 7.033203125,
+        "vram_peak_gb": 6.578763961791992
+      },
+      "memory_after": {
+        "ram_gb": 8.5164794921875,
+        "vram_allocated_gb": 6.576932907104492,
+        "vram_reserved_gb": 8.990234375,
+        "vram_peak_gb": 7.842665672302246
+      },
+      "output_path": "benchmark_outputs/proteus_v02_512/20260707_204320/proteus/style/steps_20_run_0.webp"
+    },
+    {
+      "model": "proteus",
+      "task": "style",
+      "prompt": "a cinematic portrait of a friendly explorer, soft studio lighting, detailed",
+      "width": 512,
+      "height": 512,
+      "steps_requested": 4,
+      "kwargs": {
+        "guidance_scale": 5.0,
+        "num_inference_steps": 4
+      },
+      "latency_s": 0.5537396520376205,
+      "seed": 42,
+      "memory_before": {
+        "ram_gb": 8.5164794921875,
+        "vram_allocated_gb": 6.576932907104492,
+        "vram_reserved_gb": 6.931640625,
+        "vram_peak_gb": 6.576932907104492
+      },
+      "memory_after": {
+        "ram_gb": 8.5164794921875,
+        "vram_allocated_gb": 6.57819938659668,
+        "vram_reserved_gb": 8.9296875,
+        "vram_peak_gb": 7.841078758239746
+      },
+      "output_path": "benchmark_outputs/proteus_v02_512/20260707_204320/proteus/style/steps_4_run_0.webp"
+    }
+  ],
+  "summary": {
+    "proteus:text:20": {
+      "count": 1,
+      "avg_latency_s": 2.744114118628204,
+      "min_latency_s": 2.744114118628204,
+      "max_latency_s": 2.744114118628204,
+      "max_peak_vram_gb": 7.843397617340088
+    },
+    "proteus:text:4": {
+      "count": 1,
+      "avg_latency_s": 0.6553320307284594,
+      "min_latency_s": 0.6553320307284594,
+      "max_latency_s": 0.6553320307284594,
+      "max_peak_vram_gb": 7.842909336090088
+    },
+    "proteus:style:20": {
+      "count": 1,
+      "avg_latency_s": 1.5005702190101147,
+      "min_latency_s": 1.5005702190101147,
+      "max_latency_s": 1.5005702190101147,
+      "max_peak_vram_gb": 7.842665672302246
+    },
+    "proteus:style:4": {
+      "count": 1,
+      "avg_latency_s": 0.5537396520376205,
+      "min_latency_s": 0.5537396520376205,
+      "max_latency_s": 0.5537396520376205,
+      "max_peak_vram_gb": 7.841078758239746
+    }
+  }
+}
