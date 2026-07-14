@@ -842,6 +842,13 @@ def style_transfer_image_from_prompt(
         try:
             if canny and backend == "sdxl":
                 pipe_args = build_inference_kwargs("sdxl", "style", steps=n_steps)
+                # XL controlnet img2img silently ignores custom timesteps (**kwargs);
+                # convert to an equivalent step count so strength trimming lands on the anchors
+                if "timesteps" in pipe_args:
+                    anchors = len(pipe_args.pop("timesteps"))
+                    pipe_args["num_inference_steps"] = max(
+                        anchors, math.ceil(anchors / max(strength, 0.05))
+                    )
                 with inference_guard(), torch.inference_mode():
                     sdxl_canny_pipeline = get_sdxl_canny_pipe()
                     if sdxl_canny_pipeline is not None:
