@@ -242,6 +242,17 @@ def build_inference_kwargs(
             kwargs.pop("num_inference_steps", None)
             kwargs.pop("timesteps", None)
             kwargs["sigmas"] = sigmas
+
+        timesteps_env = os.getenv("SDXL_TIMESTEPS")
+        if timesteps_env:
+            try:
+                timesteps = [int(part.strip()) for part in timesteps_env.split(",") if part.strip()]
+                if timesteps:
+                    kwargs.pop("num_inference_steps", None)
+                    kwargs.pop("sigmas", None)
+                    kwargs["timesteps"] = timesteps
+            except ValueError:
+                logger.warning(f"Invalid SDXL_TIMESTEPS={timesteps_env!r}")
         kwargs.update(extra_args)
         return kwargs
 
@@ -329,12 +340,55 @@ class FluxPerformanceOptimizer:
             except Exception:
                 pass
 
+        self.apply_vae_override(pipeline, profile)
+
+    def apply_vae_override(self, pipeline: Any, profile: RuntimeProfile) -> None:
+        vae_override = os.getenv("SDIF_VAE", "").strip().lower()
+        if vae_override not in {"taesd", "taesdxl"}:
+            return
+        if getattr(pipeline, "vae", None) is None or "XL" not in type(pipeline).__name__:
+            return
+        vae_key = f"taesd:{id(pipeline)}"
+        if vae_key in self.cache_hooked_models:
+            return
+        try:
+            from diffusers import AutoencoderTiny
+
+            taesd_path = os.getenv("SDIF_TAESD_PATH", "models/taesdxl")
+            source = taesd_path if Path(taesd_path).exists() else "madebyollin/taesdxl"
+            tiny_vae = AutoencoderTiny.from_pretrained(source, torch_dtype=torch.float16)
+            if profile.device:
+                tiny_vae = tiny_vae.to(profile.device)
+            pipeline.vae = tiny_vae
+            self.cache_hooked_models.add(vae_key)
+            logger.info(f"{type(pipeline).__name__}: VAE swapped to TAESD-XL ({source})")
+        except Exception as exc:
+            logger.warning(f"Could not swap VAE to TAESD: {exc}")
+
     def apply_cache_optimizations(self, pipeline: Any, profile: RuntimeProfile) -> None:
         if profile.cache_mode in {"", "none", "off", "false"}:
             return
 
         module = getattr(pipeline, "transformer", None)
         if module is None:
+            if profile.cache_mode in {"deepcache", "deep_cache"} and getattr(pipeline, "unet", None) is not None:
+                cache_key = f"deepcache:{id(pipeline)}"
+                if cache_key in self.cache_hooked_models:
+                    return
+                try:
+                    from DeepCache import DeepCacheSDHelper
+
+                    helper = DeepCacheSDHelper(pipe=pipeline)
+                    helper.set_params(
+                        cache_interval=env_int("SDIF_DEEPCACHE_INTERVAL", 3),
+                        cache_branch_id=env_int("SDIF_DEEPCACHE_BRANCH_ID", 0),
+                    )
+                    helper.enable()
+                    self.cache_hooked_models.add(cache_key)
+                    logger.info(f"{type(pipeline).__name__}: DeepCache enabled interval={env_int('SDIF_DEEPCACHE_INTERVAL', 3)}")
+                except Exception as exc:
+                    logger.warning(f"Could not enable DeepCache: {exc}")
+                return
             logger.info(f"{type(pipeline).__name__}: no transformer cache target")
             return
 

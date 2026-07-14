@@ -184,6 +184,49 @@ def build_flux_canny_pipe(model_repo: str | None = None):
 
 def configure_sdxl_scheduler(pipeline):
     """Use a low-step-friendly SDXL scheduler unless LCM is explicitly enabled."""
+    speed_lora = os.getenv("SDXL_SPEED_LORA", "").strip()
+    if speed_lora:
+        try:
+            pipeline.load_lora_weights(speed_lora)
+            if hasattr(pipeline, "fuse_lora"):
+                pipeline.fuse_lora()
+                pipeline.unload_lora_weights()
+            logger.info(f"Loaded and fused SDXL speed LoRA: {speed_lora}")
+        except Exception as e:
+            logger.warning(f"Could not load SDXL speed LoRA {speed_lora}: {e}")
+
+    scheduler_name = os.getenv("SDXL_SCHEDULER", "").strip().lower()
+    if scheduler_name:
+        try:
+            from diffusers import (
+                DDIMScheduler,
+                EulerAncestralDiscreteScheduler,
+                EulerDiscreteScheduler,
+            )
+
+            schedulers = {
+                "lcm": LCMScheduler,
+                "ddim": DDIMScheduler,
+                "euler": EulerDiscreteScheduler,
+                "euler_a": EulerAncestralDiscreteScheduler,
+                "dpm": DPMSolverMultistepScheduler,
+            }
+            cls = schedulers.get(scheduler_name)
+            if cls is None:
+                logger.warning(f"Unknown SDXL_SCHEDULER={scheduler_name!r}")
+            else:
+                kwargs = {}
+                if cls is DPMSolverMultistepScheduler:
+                    kwargs = {
+                        "algorithm_type": os.getenv("SDXL_DPM_ALGORITHM", "sde-dpmsolver++"),
+                        "timestep_spacing": os.getenv("SDXL_TIMESTEP_SPACING", "trailing"),
+                    }
+                pipeline.scheduler = cls.from_config(pipeline.scheduler.config, **kwargs)
+                logger.info(f"Configured SDXL scheduler: {scheduler_name}")
+                return pipeline
+        except Exception as e:
+            logger.warning(f"Could not configure SDXL_SCHEDULER={scheduler_name}: {e}")
+
     if env_bool("LOAD_LCM_LORA", False):
         lcm_path = os.getenv("LCM_LORA_PATH", "models/lcm-lora-sdxl")
         try:
