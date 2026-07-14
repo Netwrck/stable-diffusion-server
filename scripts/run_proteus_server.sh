@@ -45,5 +45,7 @@ export SDXL_TIMESTEPS="${SDXL_TIMESTEPS:-999,749,499,249}"
 export SDXL_GUIDANCE_SCALE="${SDXL_GUIDANCE_SCALE:-0}"
 export SDXL_CONTROLNET_SCALE="${SDXL_CONTROLNET_SCALE:-0.5}"
 export SDIF_VAE="${SDIF_VAE:-fp16fix}"
+export SDIF_ASYNC_UPLOAD="${SDIF_ASYNC_UPLOAD:-true}"
+export SDIF_WEBP_METHOD="${SDIF_WEBP_METHOD:-2}"
 
 exec .venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port 8000 --timeout-keep-alive 600

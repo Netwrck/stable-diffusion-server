@@ -59,6 +59,7 @@ from performance_optimizations import (
     build_inference_kwargs,
     env_bool,
     env_float,
+    env_int,
     flux_optimizer,
     optimize_all_pipelines,
     resolve_flux_model_repo,
@@ -766,8 +767,18 @@ def get_image_or_style_transfer_upload_to_cloud_storage(
             bio = style_transfer_image_from_prompt(prompt, image_url, strength, canny, backend=backend, n_steps=n_steps)
     if bio is None:
         return None  # error thrown in pool
-    link = upload_to_bucket(save_path, bio, is_bytesio=True)
+    link = upload_image_bytes(save_path, bio)
     return link
+
+
+def upload_image_bytes(save_path: str, bio) -> str:
+    """Upload webp bytes; with SDIF_ASYNC_UPLOAD the URL returns before the PUT finishes."""
+    if env_bool("SDIF_ASYNC_UPLOAD", False):
+        threading.Thread(
+            target=upload_to_bucket, args=(save_path, bio), kwargs={"is_bytesio": True}, daemon=True
+        ).start()
+        return f"https://{BUCKET_NAME}/{BUCKET_PATH}/{save_path}"
+    return upload_to_bucket(save_path, bio, is_bytesio=True)
 
 
 def get_image_or_create_upload_to_cloud_storage(
@@ -782,7 +793,7 @@ def get_image_or_create_upload_to_cloud_storage(
         bio = create_image_from_prompt(prompt, width, height)
     if bio is None:
         return None  # error thrown in pool
-    link = upload_to_bucket(save_path, bio, is_bytesio=True)
+    link = upload_image_bytes(save_path, bio)
     return link
 
 
@@ -798,7 +809,7 @@ def get_image_or_inpaint_upload_to_cloud_storage(
         bio = inpaint_image_from_prompt(prompt, image_url, mask_url)
     if bio is None:
         return None  # error thrown in pool
-    link = upload_to_bucket(save_path, bio, is_bytesio=True)
+    link = upload_image_bytes(save_path, bio)
     return link
 
 
@@ -1113,7 +1124,8 @@ def image_to_bytes(image):
         os.system("kill -1 `pgrep uvicorn`")
 
         return None
-    image.save(bs, quality=85, optimize=True, format="webp")
+    webp_method = env_int("SDIF_WEBP_METHOD", 2)
+    image.save(bs, quality=env_int("SDIF_WEBP_QUALITY", 85), method=webp_method, format="webp")
     bio = bs.getvalue()
     return bio
 
