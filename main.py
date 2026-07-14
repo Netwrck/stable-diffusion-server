@@ -57,6 +57,7 @@ from stable_diffusion_server.custom_pipeline import CustomPipeline
 from performance_optimizations import (
     build_inference_kwargs,
     env_bool,
+    env_float,
     flux_optimizer,
     optimize_all_pipelines,
     resolve_flux_model_repo,
@@ -101,6 +102,7 @@ INPAINT_PIPE = None
 CANNY_PIPE = None
 SDXL_PIPE = None
 SDXL_IMG2IMG_PIPE = None
+SDXL_CANNY_PIPE = None
 
 # Legacy compatibility variables
 flux_pipe = None
@@ -347,14 +349,15 @@ def unload_flux_pipelines():
 
 def unload_sdxl_pipelines():
     """Drop SDXL/Proteus pipelines before loading Flux on constrained GPUs."""
-    global SDXL_PIPE, SDXL_IMG2IMG_PIPE
+    global SDXL_PIPE, SDXL_IMG2IMG_PIPE, SDXL_CANNY_PIPE
 
-    if not any([SDXL_PIPE, SDXL_IMG2IMG_PIPE]):
+    if not any([SDXL_PIPE, SDXL_IMG2IMG_PIPE, SDXL_CANNY_PIPE]):
         return
 
     logger.info("Unloading SDXL/Proteus pipelines to free GPU memory")
     SDXL_PIPE = None
     SDXL_IMG2IMG_PIPE = None
+    SDXL_CANNY_PIPE = None
     clear_gpu_memory()
 
 
@@ -509,6 +512,38 @@ def get_sdxl_img2img_pipe():
     """Get the Proteus/SDXL img2img pipeline."""
     initialize_sdxl_pipelines()
     return SDXL_IMG2IMG_PIPE
+
+
+def get_sdxl_canny_pipe():
+    """Lazy SDXL ControlNet img2img pipeline sharing the resident Proteus UNet."""
+    global SDXL_CANNY_PIPE
+    if SDXL_CANNY_PIPE is None:
+        base = get_sdxl_pipe()
+        if base is None:
+            return None
+        repo = os.getenv("SDXL_CONTROLNET_REPO", "models/controlnet-canny-sdxl-1.0")
+        try:
+            from diffusers import StableDiffusionXLControlNetImg2ImgPipeline
+
+            controlnet = ControlNetModel.from_pretrained(
+                repo,
+                torch_dtype=torch.float16,
+                variant="fp16",
+                use_safetensors=True,
+                local_files_only=env_bool("HF_LOCAL_ONLY", False),
+            )
+            SDXL_CANNY_PIPE = StableDiffusionXLControlNetImg2ImgPipeline.from_pipe(
+                base, controlnet=controlnet
+            )
+            SDXL_CANNY_PIPE.watermark = None
+            if torch.cuda.is_available():
+                SDXL_CANNY_PIPE.controlnet.to("cuda")
+            SDXL_CANNY_PIPE.set_progress_bar_config(disable=True)
+            logger.info(f"Loaded SDXL Canny ControlNet: {repo}")
+        except Exception as e:
+            logger.warning(f"Failed to load SDXL ControlNet {repo}: {e}")
+            return None
+    return SDXL_CANNY_PIPE
 
 
 def normalize_save_path(save_path: str, suffix: str = "") -> str:
@@ -781,7 +816,30 @@ def style_transfer_image_from_prompt(
     generator = torch.Generator("cpu").manual_seed(0)
     for attempt in range(retries + 1):
         try:
-            if canny:
+            if canny and backend == "sdxl":
+                pipe_args = build_inference_kwargs("sdxl", "style", steps=n_steps)
+                with inference_guard(), torch.inference_mode():
+                    sdxl_canny_pipeline = get_sdxl_canny_pipe()
+                    if sdxl_canny_pipeline is not None:
+                        image = sdxl_canny_pipeline(
+                            prompt=prompt,
+                            image=input_pil,
+                            control_image=canny_image,
+                            strength=strength,
+                            controlnet_conditioning_scale=env_float("SDXL_CONTROLNET_SCALE", 0.5),
+                            generator=generator,
+                            **pipe_args,
+                        ).images[0]
+                    else:
+                        sdxl_img2img_pipeline = get_sdxl_img2img_pipe()
+                        image = sdxl_img2img_pipeline(
+                            prompt=prompt,
+                            image=input_pil,
+                            strength=strength,
+                            generator=generator,
+                            **pipe_args,
+                        ).images[0]
+            elif canny:
                 # Use Flux ControlNet for Canny edge guidance
                 pipe_args = build_inference_kwargs("flux", "control", steps=n_steps)
                 with inference_guard(), torch.inference_mode():
@@ -927,8 +985,8 @@ def create_image_from_prompt(
         extra_args=extra_args,
     )
 
-    # Clear GPU memory before inference
-    clear_gpu_memory()
+    if env_bool("SDIF_CLEAR_MEMORY_EACH_CALL", False):
+        clear_gpu_memory()
 
     for attempt in range(retries + 1):
         try:
