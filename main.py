@@ -1,6 +1,7 @@
 import gc
 import math
 import os
+import re
 import threading
 import traceback
 from contextlib import nullcontext
@@ -570,6 +571,14 @@ def get_sdxl_canny_pipe():
     return SDXL_CANNY_PIPE
 
 
+def default_save_path(prompt: str, width: int | None = None, height: int | None = None, prefix: str = "created") -> str:
+    """Build a save path from the prompt when the caller omits one."""
+    slug = re.sub(r"[^a-z0-9]+", "-", prompt.lower()).strip("-")[:80].strip("-") or "image"
+    if width and height:
+        slug = f"{slug}-{width}x{height}"
+    return f"{prefix}/{slug}.webp"
+
+
 def normalize_save_path(save_path: str, suffix: str = "") -> str:
     if not save_path:
         return ""
@@ -662,7 +671,7 @@ def text_to_image(
 async def create_and_upload_image(
     prompt: str, width: int = 1024, height: int = 1024, save_path: str = ""
 ):
-    save_path = normalize_save_path(save_path)
+    save_path = normalize_save_path(save_path or default_save_path(prompt, width, height))
     path = get_image_or_create_upload_to_cloud_storage(prompt, width, height, save_path)
     return JSONResponse({"path": path})
 
@@ -671,7 +680,7 @@ async def create_and_upload_image(
 async def inpaint_and_upload_image(
     prompt: str, image_url: str, mask_url: str, save_path: str = ""
 ):
-    save_path = normalize_save_path(save_path)
+    save_path = normalize_save_path(save_path or default_save_path(prompt, prefix="inpainted"))
     path = get_image_or_inpaint_upload_to_cloud_storage(
         prompt, image_url, mask_url, save_path
     )
@@ -689,7 +698,7 @@ async def style_transfer_and_upload_image(
     n_steps: int | None = None,
 ):
     # todo also accept image bytes directly?
-    save_path = normalize_save_path(save_path)
+    save_path = normalize_save_path(save_path or default_save_path(prompt, prefix="styled"))
     path = get_image_or_style_transfer_upload_to_cloud_storage(
         prompt, image_url, save_path, strength, canny, backend=backend, n_steps=n_steps
     )
@@ -714,7 +723,9 @@ async def style_transfer_bytes_and_upload_image(
     else:
         canny_bool = False
 
-    save_path = normalize_save_path(save_path, suffix=f"_{uuid_str}")
+    save_path = normalize_save_path(
+        save_path or default_save_path(prompt, prefix="styled"), suffix=f"_{uuid_str}"
+    )
     image_bytes = None
     if image_file:
         image_bytes = await image_file.read()
