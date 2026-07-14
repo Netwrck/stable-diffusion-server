@@ -526,7 +526,9 @@ def get_sdxl_inpaint_pipe():
         try:
             from diffusers import StableDiffusionXLInpaintPipeline
 
-            SDXL_INPAINT_PIPE = StableDiffusionXLInpaintPipeline.from_pipe(base)
+            SDXL_INPAINT_PIPE = StableDiffusionXLInpaintPipeline.from_pipe(
+                base, torch_dtype=torch.float16
+            )
             SDXL_INPAINT_PIPE.watermark = None
             SDXL_INPAINT_PIPE.set_progress_bar_config(disable=True)
             logger.info("Initialized SDXL inpaint pipeline from resident Proteus UNet")
@@ -555,7 +557,7 @@ def get_sdxl_canny_pipe():
                 local_files_only=env_bool("HF_LOCAL_ONLY", False),
             )
             SDXL_CANNY_PIPE = StableDiffusionXLControlNetImg2ImgPipeline.from_pipe(
-                base, controlnet=controlnet
+                base, controlnet=controlnet, torch_dtype=torch.float16
             )
             SDXL_CANNY_PIPE.watermark = None
             if torch.cuda.is_available():
