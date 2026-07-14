@@ -103,6 +103,7 @@ CANNY_PIPE = None
 SDXL_PIPE = None
 SDXL_IMG2IMG_PIPE = None
 SDXL_CANNY_PIPE = None
+SDXL_INPAINT_PIPE = None
 
 # Legacy compatibility variables
 flux_pipe = None
@@ -349,15 +350,16 @@ def unload_flux_pipelines():
 
 def unload_sdxl_pipelines():
     """Drop SDXL/Proteus pipelines before loading Flux on constrained GPUs."""
-    global SDXL_PIPE, SDXL_IMG2IMG_PIPE, SDXL_CANNY_PIPE
+    global SDXL_PIPE, SDXL_IMG2IMG_PIPE, SDXL_CANNY_PIPE, SDXL_INPAINT_PIPE
 
-    if not any([SDXL_PIPE, SDXL_IMG2IMG_PIPE, SDXL_CANNY_PIPE]):
+    if not any([SDXL_PIPE, SDXL_IMG2IMG_PIPE, SDXL_CANNY_PIPE, SDXL_INPAINT_PIPE]):
         return
 
     logger.info("Unloading SDXL/Proteus pipelines to free GPU memory")
     SDXL_PIPE = None
     SDXL_IMG2IMG_PIPE = None
     SDXL_CANNY_PIPE = None
+    SDXL_INPAINT_PIPE = None
     clear_gpu_memory()
 
 
@@ -512,6 +514,26 @@ def get_sdxl_img2img_pipe():
     """Get the Proteus/SDXL img2img pipeline."""
     initialize_sdxl_pipelines()
     return SDXL_IMG2IMG_PIPE
+
+
+def get_sdxl_inpaint_pipe():
+    """Lazy SDXL inpaint pipeline sharing the resident Proteus UNet."""
+    global SDXL_INPAINT_PIPE
+    if SDXL_INPAINT_PIPE is None:
+        base = get_sdxl_pipe()
+        if base is None:
+            return None
+        try:
+            from diffusers import StableDiffusionXLInpaintPipeline
+
+            SDXL_INPAINT_PIPE = StableDiffusionXLInpaintPipeline.from_pipe(base)
+            SDXL_INPAINT_PIPE.watermark = None
+            SDXL_INPAINT_PIPE.set_progress_bar_config(disable=True)
+            logger.info("Initialized SDXL inpaint pipeline from resident Proteus UNet")
+        except Exception as e:
+            logger.warning(f"Failed to build SDXL inpaint pipeline: {e}")
+            return None
+    return SDXL_INPAINT_PIPE
 
 
 def get_sdxl_canny_pipe():
@@ -1085,8 +1107,24 @@ def inpaint_image_from_prompt(prompt, image_url: str, mask_url: str, retries=3):
     # num_inference_steps = 75 # causes weird error ValueError: The combination of `original_steps x strength`: 50 x 1.0 is smaller than `num_inference_steps`: 75. Make sure to either reduce `num_inference_steps` to a value smaller than 50 or increase `strength` to a value higher than 1.5.
     high_noise_frac = 0.7
 
+    backend = os.getenv("INPAINT_BACKEND", os.getenv("TEXT_TO_IMAGE_BACKEND", "flux")).strip().lower()
+    if backend == "proteus":
+        backend = "sdxl"
+
     for attempt in range(retries + 1):
         try:
+            if backend == "sdxl":
+                pipe_args = build_inference_kwargs("sdxl", "inpaint")
+                with inference_guard(), torch.inference_mode():
+                    inpaint_pipeline = get_sdxl_inpaint_pipe()
+                    image = inpaint_pipeline(
+                        prompt=prompt,
+                        image=init_image,
+                        mask_image=mask_image,
+                        strength=env_float("SDXL_INPAINT_STRENGTH", 0.99),
+                        **pipe_args,
+                    ).images[0]
+                break
             pipe_args = build_inference_kwargs("flux", "inpaint")
             with inference_guard(), torch.inference_mode():
                 inpaint_pipeline = get_inpaint_pipe()
