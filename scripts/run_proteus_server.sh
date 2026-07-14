@@ -38,4 +38,11 @@ export SDIF_KEEP_MULTIPLE_PIPELINES="${SDIF_KEEP_MULTIPLE_PIPELINES:-false}"
 export SDIF_SERIALIZE_INFERENCE="${SDIF_SERIALIZE_INFERENCE:-true}"
 export PROTEUS_MODEL_REPO="${PROTEUS_MODEL_REPO:-models/ProteusV0.2}"
 
+# DMD2 4-step distillation: near-40-step quality at ~1s/768px on the 3090
+export SDXL_SPEED_LORA="${SDXL_SPEED_LORA:-models/dmd2/dmd2_sdxl_4step_lora_fp16.safetensors}"
+export SDXL_SCHEDULER="${SDXL_SCHEDULER:-lcm}"
+export SDXL_TIMESTEPS="${SDXL_TIMESTEPS:-999,749,499,249}"
+export SDXL_GUIDANCE_SCALE="${SDXL_GUIDANCE_SCALE:-0}"
+export SDXL_CONTROLNET_SCALE="${SDXL_CONTROLNET_SCALE:-0.5}"
+
 exec .venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port 8000 --timeout-keep-alive 600
