@@ -44,5 +44,6 @@ export SDXL_SCHEDULER="${SDXL_SCHEDULER:-lcm}"
 export SDXL_TIMESTEPS="${SDXL_TIMESTEPS:-999,749,499,249}"
 export SDXL_GUIDANCE_SCALE="${SDXL_GUIDANCE_SCALE:-0}"
 export SDXL_CONTROLNET_SCALE="${SDXL_CONTROLNET_SCALE:-0.5}"
+export SDIF_VAE="${SDIF_VAE:-fp16fix}"
 
 exec .venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port 8000 --timeout-keep-alive 600
