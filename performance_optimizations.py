@@ -344,26 +344,37 @@ class FluxPerformanceOptimizer:
 
     def apply_vae_override(self, pipeline: Any, profile: RuntimeProfile) -> None:
         vae_override = os.getenv("SDIF_VAE", "").strip().lower()
-        if vae_override not in {"taesd", "taesdxl"}:
+        if vae_override not in {"taesd", "taesdxl", "fp16fix"}:
             return
         if getattr(pipeline, "vae", None) is None or "XL" not in type(pipeline).__name__:
             return
-        vae_key = f"taesd:{id(pipeline)}"
+        vae_key = f"vae:{vae_override}:{id(pipeline)}"
         if vae_key in self.cache_hooked_models:
             return
         try:
-            from diffusers import AutoencoderTiny
+            if vae_override == "fp16fix":
+                from diffusers import AutoencoderKL
 
-            taesd_path = os.getenv("SDIF_TAESD_PATH", "models/taesdxl")
-            source = taesd_path if Path(taesd_path).exists() else "madebyollin/taesdxl"
-            tiny_vae = AutoencoderTiny.from_pretrained(source, torch_dtype=torch.float16)
+                fix_path = os.getenv("SDIF_FP16FIX_PATH", "models/sdxl-vae-fp16-fix")
+                source = fix_path if Path(fix_path).exists() else "madebyollin/sdxl-vae-fp16-fix"
+                new_vae = AutoencoderKL.from_pretrained(source, torch_dtype=torch.float16)
+                new_vae.config.force_upcast = False
+                label = "sdxl-vae-fp16-fix (no upcast)"
+            else:
+                from diffusers import AutoencoderTiny
+
+                taesd_path = os.getenv("SDIF_TAESD_PATH", "models/taesdxl")
+                source = taesd_path if Path(taesd_path).exists() else "madebyollin/taesdxl"
+                new_vae = AutoencoderTiny.from_pretrained(source, torch_dtype=torch.float16)
+                label = "TAESD-XL"
             if profile.device:
-                tiny_vae = tiny_vae.to(profile.device)
-            pipeline.vae = tiny_vae
+                new_vae = new_vae.to(profile.device)
+            new_vae.to(memory_format=torch.channels_last)
+            pipeline.vae = new_vae
             self.cache_hooked_models.add(vae_key)
-            logger.info(f"{type(pipeline).__name__}: VAE swapped to TAESD-XL ({source})")
+            logger.info(f"{type(pipeline).__name__}: VAE swapped to {label} ({source})")
         except Exception as exc:
-            logger.warning(f"Could not swap VAE to TAESD: {exc}")
+            logger.warning(f"Could not swap VAE to {vae_override}: {exc}")
 
     def apply_cache_optimizations(self, pipeline: Any, profile: RuntimeProfile) -> None:
         if profile.cache_mode in {"", "none", "off", "false"}:

@@ -36,6 +36,9 @@ for cfg in $CONFIGS; do
     dmd2_4) run dmd2_4 $DMD2_ENV --guidance 0 ;;
     hyper8) run hyper8 SDXL_SPEED_LORA=$HYPER_LORA --steps 8 --guidance 5.0 ;;
     dmd2_4_taesd) run dmd2_4_taesd $DMD2_ENV SDIF_VAE=taesdxl --guidance 0 ;;
+    dmd2_4_fp16fix) run dmd2_4_fp16fix $DMD2_ENV SDIF_VAE=fp16fix --guidance 0 ;;
+    dmd2_4_sdpa) run dmd2_4_sdpa $DMD2_ENV SDIF_XFORMERS=false --guidance 0 ;;
+    dmd2_4_sdpa_compile) run dmd2_4_sdpa_compile $DMD2_ENV SDIF_XFORMERS=false SDIF_TORCH_COMPILE=1 --guidance 0 --warmup 4 ;;
     deepcache20) run deepcache20 SDIF_CACHE_MODE=deepcache SDIF_DEEPCACHE_INTERVAL=3 --steps 20 --guidance 5.0 ;;
     dmd2_4_compile) run dmd2_4_compile $DMD2_ENV SDIF_TORCH_COMPILE=1 --guidance 0 --warmup 4 ;;
     dmd2_4_compile_taesd) run dmd2_4_compile_taesd $DMD2_ENV SDIF_TORCH_COMPILE=1 SDIF_VAE=taesdxl --guidance 0 --warmup 4 ;;
