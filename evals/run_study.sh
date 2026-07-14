@@ -24,7 +24,8 @@ run() {
   while [[ $# -gt 0 && "$1" == *=* ]]; do envs+=("$1"); shift; done
   echo "=== $name"
   env SDIF_CACHE_MODE=none "${envs[@]}" "$PY" evals/gen_images.py \
-    --name "$name" --task "$TASK" --width "$SIZE" --height "$SIZE" --num-prompts "$NUM_PROMPTS" "$@"
+    --name "$name" --task "$TASK" --width "$SIZE" --height "$SIZE" --num-prompts "$NUM_PROMPTS" \
+    --out-root "evals/out/$TASK$SIZE" "$@"
 }
 
 CONFIGS="${CONFIGS:-ref40 dpm8 dmd2_4 hyper8 dmd2_4_taesd deepcache20 dmd2_4_compile dmd2_4_compile_taesd}"
@@ -47,6 +48,8 @@ for cfg in $CONFIGS; do
 done
 
 DIRS=""
-for cfg in $CONFIGS; do DIRS="$DIRS evals/out/$cfg"; done
-HF_LOCAL_ONLY=false "$PY" evals/score.py --dirs $DIRS --ref evals/out/ref40 \
+for cfg in $CONFIGS; do DIRS="$DIRS evals/out/$TASK$SIZE/$cfg"; done
+REF="evals/out/$TASK$SIZE/ref40"
+[ -d "$REF" ] || REF=""
+HF_LOCAL_ONLY=false "$PY" evals/score.py --dirs $DIRS ${REF:+--ref $REF} \
   --output "evals/results/summary_${TASK}_${SIZE}.json" --sheet "evals/results/sheet_${TASK}_${SIZE}.png"
