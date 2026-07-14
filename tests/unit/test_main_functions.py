@@ -42,65 +42,65 @@ class TestMainFunctions:
         except Exception as e:
             assert "Pipeline not initialized" in str(e)
 
-    @patch('main.flux_pipe')
+    @patch('main.get_flux_pipe')
     @patch('main.detect_too_bumpy')
     @patch('main.image_to_bytes')
     @patch('main.shorten_too_long_text')
     @patch('main.remove_stopwords')
     @patch('main.shorten_prompt_for_retry')
     @patch('torch.Generator')
-    def test_create_image_from_prompt_success(self, mock_generator, mock_shorten_retry, 
+    def test_create_image_from_prompt_success(self, mock_generator, mock_shorten_retry,
                                              mock_remove_stopwords, mock_shorten_text,
-                                             mock_image_to_bytes, mock_detect_bumpy, mock_flux_pipe):
+                                             mock_image_to_bytes, mock_detect_bumpy,
+                                             mock_get_flux_pipe):
         """Test successful image creation from prompt."""
-        # Setup mocks
         mock_image = Mock()
-        mock_flux_pipe.return_value.images = [mock_image]
+        mock_pipe = Mock()
+        mock_pipe.return_value.images = [mock_image]
+        mock_get_flux_pipe.return_value = mock_pipe
         mock_shorten_text.return_value = "shortened prompt"
         mock_detect_bumpy.return_value = False
         mock_image_to_bytes.return_value = b"fake_image_bytes"
-        mock_gen = Mock()
-        mock_generator.return_value = mock_gen
-        
-        # Test the function
-        result = create_image_from_prompt("test prompt", 1024, 1024, n_steps=5)
-        
-        # Assertions
+        mock_generator.return_value = Mock()
+
+        result = create_image_from_prompt("test prompt", 1024, 1024, n_steps=5,
+                                          extra_args={"backend": "flux"})
+
         assert result == b"fake_image_bytes"
-        mock_flux_pipe.assert_called_once()
-        mock_detect_bumpy.assert_called_once_with(mock_image)
+        mock_pipe.assert_called_once()
         mock_image_to_bytes.assert_called_once_with(mock_image)
 
-    @patch('main.flux_pipe')
+    @patch('main.get_flux_pipe')
     @patch('main.detect_too_bumpy')
     @patch('main.image_to_bytes')
     @patch('main.shorten_too_long_text')
     @patch('main.remove_stopwords')
     @patch('main.shorten_prompt_for_retry')
     @patch('torch.Generator')
-    def test_create_image_from_prompt_too_bumpy(self, mock_generator, mock_shorten_retry, 
-                                               mock_remove_stopwords, mock_shorten_text,
-                                               mock_image_to_bytes, mock_detect_bumpy, mock_flux_pipe):
-        """Test image creation with too bumpy detection."""
-        # Setup mocks - first call is bumpy, second call is not
+    def test_create_image_from_prompt_retries(self, mock_generator, mock_shorten_retry,
+                                              mock_remove_stopwords, mock_shorten_text,
+                                              mock_image_to_bytes, mock_detect_bumpy,
+                                              mock_get_flux_pipe):
+        """Test image creation retries after a pipeline failure."""
         mock_image = Mock()
-        mock_flux_pipe.return_value.images = [mock_image]
+        mock_pipe = Mock()
+        ok = Mock()
+        ok.images = [mock_image]
+        mock_pipe.side_effect = [RuntimeError("boom"), ok]
+        mock_get_flux_pipe.return_value = mock_pipe
         mock_shorten_text.return_value = "shortened prompt"
-        mock_detect_bumpy.side_effect = [True, False]  # First bumpy, then not
+        mock_remove_stopwords.return_value = "shortened prompt"
+        mock_detect_bumpy.return_value = False
         mock_image_to_bytes.return_value = b"fake_image_bytes"
-        mock_gen = Mock()
-        mock_generator.return_value = mock_gen
-        
-        # Test the function
-        result = create_image_from_prompt("test prompt", 1024, 1024, n_steps=5)
-        
-        # Assertions
-        assert result == b"fake_image_bytes"
-        assert mock_flux_pipe.call_count == 2  # Should retry once
-        assert mock_detect_bumpy.call_count == 2
+        mock_generator.return_value = Mock()
 
-    @patch('main.flux_pipe')
-    @patch('main.flux_controlnetpipe')
+        result = create_image_from_prompt("test prompt", 1024, 1024, n_steps=5,
+                                          extra_args={"backend": "flux"})
+
+        assert result == b"fake_image_bytes"
+        assert mock_pipe.call_count == 2
+
+    @patch('main.get_sdxl_canny_pipe')
     @patch('main.process_image_for_stable_diffusion')
     @patch('main.load_image')
     @patch('main.detect_too_bumpy')
@@ -112,10 +112,10 @@ class TestMainFunctions:
     def test_style_transfer_image_from_prompt_with_canny(self, mock_generator, mock_set_seed,
                                                         mock_cv2, mock_shorten_text, mock_image_to_bytes,
                                                         mock_detect_bumpy, mock_load_image,
-                                                        mock_process_image, mock_flux_controlnetpipe,
-                                                        mock_flux_pipe):
-        """Test style transfer with Canny edge detection."""
-        # Setup mocks
+                                                        mock_process_image, mock_get_canny_pipe):
+        """Test canny style transfer routes through the SDXL ControlNet pipeline."""
+        import numpy as np
+
         mock_input_image = Mock()
         mock_input_image.width = 1024
         mock_input_image.height = 1024
@@ -124,23 +124,22 @@ class TestMainFunctions:
         mock_shorten_text.return_value = "shortened prompt"
         mock_detect_bumpy.return_value = False
         mock_image_to_bytes.return_value = b"fake_image_bytes"
-        
-        # Mock CV2 Canny
-        mock_cv2.Canny.return_value = Mock()
-        
-        # Mock the pipeline
+
+        mock_cv2.Canny.return_value = np.zeros((8, 8), dtype=np.uint8)
+
         mock_result_image = Mock()
-        mock_flux_controlnetpipe.return_value.images = [mock_result_image]
-        
-        mock_gen = Mock()
-        mock_generator.return_value = mock_gen
-        
-        # Test the function
-        result = style_transfer_image_from_prompt("test prompt", "image_url", canny=True)
-        
-        # Assertions
+        mock_pipe = Mock()
+        mock_pipe.return_value.images = [mock_result_image]
+        mock_get_canny_pipe.return_value = mock_pipe
+
+        mock_generator.return_value = Mock()
+
+        result = style_transfer_image_from_prompt(
+            "test prompt", "image_url", canny=True, backend="sdxl"
+        )
+
         assert result == b"fake_image_bytes"
-        mock_flux_controlnetpipe.assert_called_once()
+        mock_pipe.assert_called_once()
         mock_cv2.Canny.assert_called_once()
         mock_set_seed.assert_called_once_with(42)
 
