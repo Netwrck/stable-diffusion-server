@@ -41,7 +41,7 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from transformers import set_seed
 
-from env import BUCKET_PATH, BUCKET_NAME
+from env import BUCKET_PATH, BUCKET_NAME, PUBLIC_BASE_URL
 from stable_diffusion_server.bucket_api import check_if_blob_exists, upload_to_bucket
 from stable_diffusion_server.bumpy_detection import detect_too_bumpy
 from stable_diffusion_server.image_processing import (
@@ -625,11 +625,11 @@ def controlnet_image(prompt: str, image_path: str, save_path: str = "", retries=
         save_path = normalize_save_path(save_path)
         if check_if_blob_exists(save_path):
             return JSONResponse(
-                {"path": f"https://{BUCKET_NAME}/{BUCKET_PATH}/{save_path}"}
+                {"path": f"https://{PUBLIC_BASE_URL}/{BUCKET_PATH}/{save_path}"}
             )
         upload_to_bucket(save_path, image_bytes, is_bytesio=False)
         return JSONResponse(
-            {"path": f"https://{BUCKET_NAME}/{BUCKET_PATH}/{save_path}"}
+            {"path": f"https://{PUBLIC_BASE_URL}/{BUCKET_PATH}/{save_path}"}
         )
     return StreamingResponse(content=iter([image_bytes]), media_type="image/webp")
 
@@ -756,7 +756,7 @@ def get_image_or_style_transfer_upload_to_cloud_storage(
     save_path = shorten_too_long_text(save_path)
     # check exists - todo cache this
     if check_if_blob_exists(save_path):
-        return f"https://{BUCKET_NAME}/{BUCKET_PATH}/{save_path}"
+        return f"https://{PUBLIC_BASE_URL}/{BUCKET_PATH}/{save_path}"
     with torch.inference_mode():
         if image_bytes:
             input_image = Image.open(BytesIO(image_bytes))
@@ -777,7 +777,7 @@ def upload_image_bytes(save_path: str, bio) -> str:
         threading.Thread(
             target=upload_to_bucket, args=(save_path, bio), kwargs={"is_bytesio": True}, daemon=True
         ).start()
-        return f"https://{BUCKET_NAME}/{BUCKET_PATH}/{save_path}"
+        return f"https://{PUBLIC_BASE_URL}/{BUCKET_PATH}/{save_path}"
     return upload_to_bucket(save_path, bio, is_bytesio=True)
 
 
@@ -788,7 +788,7 @@ def get_image_or_create_upload_to_cloud_storage(
     save_path = shorten_too_long_text(save_path)
     # check exists - todo cache this
     if check_if_blob_exists(save_path):
-        return f"https://{BUCKET_NAME}/{BUCKET_PATH}/{save_path}"
+        return f"https://{PUBLIC_BASE_URL}/{BUCKET_PATH}/{save_path}"
     with torch.inference_mode():
         bio = create_image_from_prompt(prompt, width, height)
     if bio is None:
@@ -804,7 +804,7 @@ def get_image_or_inpaint_upload_to_cloud_storage(
     save_path = shorten_too_long_text(save_path)
     # check exists - todo cache this
     if check_if_blob_exists(save_path):
-        return f"https://{BUCKET_NAME}/{BUCKET_PATH}/{save_path}"
+        return f"https://{PUBLIC_BASE_URL}/{BUCKET_PATH}/{save_path}"
     with torch.inference_mode():
         bio = inpaint_image_from_prompt(prompt, image_url, mask_url)
     if bio is None:
