@@ -1007,6 +1007,40 @@ def style_transfer_image_from_prompt(
     return image_to_bytes(image)
 
 
+OMNISERVE_ART_URL = os.getenv("OMNISERVE_ART_URL", "http://127.0.0.1:8791")
+
+
+def create_image_via_omniserve(prompt, width, height, steps=None, timeout=120):
+    """Fetch pixels from the native omniserve-native gateway instead of a local pipeline.
+
+    The gateway keeps Z-Image Turbo resident on the GPU and answers in about a
+    second, where the in-process FLUX path takes twenty. It already returns WebP,
+    which is what upload_to_bucket stores, so the bytes pass straight through
+    without a decode/re-encode round trip.
+    """
+    import json as _json
+    import urllib.request as _urlreq
+
+    body = {"prompt": prompt, "width": int(width), "height": int(height)}
+    if steps:
+        body["steps"] = int(steps)
+    req = _urlreq.Request(
+        f"{OMNISERVE_ART_URL.rstrip('/')}/v1/images/generations",
+        data=_json.dumps(body).encode(),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with _urlreq.urlopen(req, timeout=timeout) as resp:
+        content_type = resp.headers.get("Content-Type", "")
+        payload = resp.read()
+    if not payload:
+        raise RuntimeError("omniserve returned an empty body")
+    # A JSON body here is the gateway's error envelope, not an image.
+    if content_type.startswith("application/json"):
+        raise RuntimeError(f"omniserve error: {payload[:200]!r}")
+    return BytesIO(payload)
+
+
 def create_image_from_prompt(
     prompt, width, height, n_steps=5, extra_args=None, retries=3
 ):
@@ -1027,6 +1061,13 @@ def create_image_from_prompt(
     backend = extra_args.pop("backend", os.getenv("TEXT_TO_IMAGE_BACKEND", "flux")).strip().lower()
     if backend == "proteus":
         backend = "sdxl"
+
+    # Delegating backend: no local pipeline, no GPU held in this process, so the
+    # API server can run alongside the gateway that owns the device.
+    if backend == "omniserve":
+        return create_image_via_omniserve(
+            prompt, block_width, block_height, extra_args.pop("num_inference_steps", None)
+        )
 
     guidance_scale = extra_args.pop("guidance_scale", None)
     call_steps = extra_args.pop("num_inference_steps", n_steps)
