@@ -5,11 +5,13 @@ images
 backdrops
 .env
 venv
+.venv
 secrets
 .pytest_cache
 progress.txt
 .idea
 __pycache__
+*.log
 
 sellerinfo.py
 output
