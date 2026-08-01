@@ -12,10 +12,20 @@ if exist "%USERPROFILE%\.secretbashrc" (
     )
 )
 
+REM Daisy is the source of truth for the image-service R2 credentials.
+if exist "%USERPROFILE%\.secretbashrc.daisy" (
+    echo Loading Daisy R2 credentials...
+    for /f "tokens=1,* delims==" %%a in ('type "%USERPROFILE%\.secretbashrc.daisy" ^| findstr /B /C:"export R2_" /C:"export CLOUDFLARE_R2_" /C:"export CLOUDFLARE_BUCKET" /C:"export AWS_"') do (
+        for /f "tokens=2" %%i in ("%%a") do set "%%i=%%~b"
+    )
+)
+
 REM Normalize the names used by the shared shell secrets to boto3's names.
 if defined R2_ENDPOINT set "R2_ENDPOINT_URL=%R2_ENDPOINT%"
+if not defined R2_ENDPOINT_URL if defined R2_ACCOUNT_ID set "R2_ENDPOINT_URL=https://%R2_ACCOUNT_ID%.r2.cloudflarestorage.com"
 if defined CLOUDFLARE_R2_ACCESS_KEY_ID set "AWS_ACCESS_KEY_ID=%CLOUDFLARE_R2_ACCESS_KEY_ID%"
 if defined CLOUDFLARE_R2_SECRET_ACCESS_KEY set "AWS_SECRET_ACCESS_KEY=%CLOUDFLARE_R2_SECRET_ACCESS_KEY%"
+set "R2_PUBLIC_DOMAIN=netwrckstatic.netwrck.com"
 
 REM Or set them manually here (uncomment and fill in):
 REM set R2_ENDPOINT_URL=https://your-account-id.r2.cloudflarestorage.com
